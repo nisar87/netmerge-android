@@ -1,0 +1,66 @@
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  emulator:
+    # Android emulator with Wi-Fi and mobile data both available; checks that the app can keep both up and send a
+    # connection out on each, also while it runs a VPN on the phone.
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [34, 35]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Allow the emulator to use KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Build the app and its tests
+        run: ./gradlew --no-daemon assembleDebug assembleDebugAndroidTest
+      - name: Run on the emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: |
+            adb shell svc wifi enable
+            adb shell svc data enable
+            sleep 15
+            adb shell dumpsys connectivity | grep -E "NetworkAgentInfo|Transports" | head -20 || true
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            adb shell appops set dev.netmerge.android ACTIVATE_VPN allow
+            adb logcat -c
+            adb shell am instrument -w -r dev.netmerge.android.test/androidx.test.runner.AndroidJUnitRunner > instrument.txt; cat instrument.txt
+            adb logcat -d -s NetMergeSpike > logcat.txt || true
+            grep -q "^OK (" instrument.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-api${{ matrix.api }}
+          path: |
+            instrument.txt
+            logcat.txt
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: matrix.api == 35
+        with:
+          name: test-apks
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          retention-days: 30
