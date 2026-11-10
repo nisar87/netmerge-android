@@ -42,7 +42,7 @@ jobs:
           script: |
             adb shell svc wifi enable
             adb shell svc data enable
-            sleep 15
+            for i in $(seq 1 40); do c=$(adb shell dumpsys connectivity | grep -c -E "ni\{(WIFI|MOBILE[^ ]*) CONNECTED"); [ "$c" -ge 2 ] && break; [ $((i % 10)) -eq 0 ] && adb shell svc wifi enable; sleep 3; done; echo "connected networks: $c"
             adb shell dumpsys connectivity | grep -E "NetworkAgentInfo|Transports" | head -20 || true
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
