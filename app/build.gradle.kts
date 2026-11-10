@@ -16,6 +16,17 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        // A fixed key for test builds only (it is public on purpose), so a new test build installs over the last
+        // one. Real releases will be signed with a private key kept out of this repository.
+        getByName("debug") {
+            storeFile = file("test-signing.jks")
+            storePassword = "netmerge-test"
+            keyAlias = "test"
+            keyPassword = "netmerge-test"
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
