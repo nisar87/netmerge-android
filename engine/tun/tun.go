@@ -23,7 +23,7 @@ import (
 type Engine struct {
 	Split split.Splitter
 	stack *stack.Stack
-	dev   interface{ Close() error }
+	dev   interface{ Close() }
 	stop  chan struct{}
 	once  sync.Once
 	fails atomic.Int64
@@ -33,7 +33,7 @@ type Engine struct {
 func Start(fd int, mtu int, nets []split.Net) (*Engine, error) {
 	e := &Engine{stop: make(chan struct{})}
 	e.Split.SetNets(nets)
-	dev, err := fdbased.Open(strconv.Itoa(fd), uint32(mtu))
+	dev, err := fdbased.Open(strconv.Itoa(fd), uint32(mtu), 0)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +78,7 @@ func (e *Engine) learn() {
 	}
 }
 
-func dest(id *stack.TransportEndpointID) (net.IP, int) {
+func dest(id stack.TransportEndpointID) (net.IP, int) {
 	return net.IP(id.LocalAddress.AsSlice()), int(id.LocalPort)
 }
 
