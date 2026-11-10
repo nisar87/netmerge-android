@@ -24,13 +24,33 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: engine/go.mod
+      - name: Test and build the engine (Go, gomobile)
+        working-directory: engine
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          go get golang.org/x/mobile/bind@latest
+          go mod tidy
+          go get golang.org/x/mobile/bind@latest
+          go vet ./split
+          go test ./split
+          gomobile init
+          mkdir -p ../app/libs
+          gomobile bind -target=android/arm64,android/amd64 -androidapi 29 -o ../app/libs/engine.aar ./mobile
+          ls -la ../app/libs
       - name: Allow the emulator to use KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Build the app and its tests
-        run: ./gradlew --no-daemon assembleDebug assembleDebugAndroidTest
+        run: ./gradlew --no-daemon assembleDebug assembleDebugAndroidTest :probe:assembleDebug :probe:assembleDebugAndroidTest
       - name: Run on the emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -51,12 +71,26 @@ jobs:
             adb shell am instrument -w -r dev.netmerge.android.test/androidx.test.runner.AndroidJUnitRunner > instrument.txt; cat instrument.txt
             adb logcat -d -s NetMergeSpike > logcat.txt || true
             grep -q "^OK (" instrument.txt
+            adb install -r probe/build/outputs/apk/debug/probe-debug.apk
+            adb install -r probe/build/outputs/apk/androidTest/debug/probe-debug-androidTest.apk
+            adb shell am start -n dev.netmerge.android/.MainActivity --ez merge true
+            sleep 20
+            adb shell dumpsys connectivity | grep -c "VPN CONNECTED" || true
+            adb shell am instrument -w -r -e class dev.netmerge.probe.ProbeTest#pagesOpen dev.netmerge.probe.test/androidx.test.runner.AndroidJUnitRunner > probe1.txt; cat probe1.txt
+            adb shell am instrument -w -r -e class dev.netmerge.probe.ProbeTest#download -e conns 8 -e secs 15 -e size 40000000 dev.netmerge.probe.test/androidx.test.runner.AndroidJUnitRunner > probe2.txt; cat probe2.txt
+            sleep 3
+            adb logcat -d -s NetMergeSpike NetMergeProbe GoLog > logcat.txt || true
+            grep ENGINE logcat.txt | tail -5
+            grep -q "^OK (" probe1.txt
+            grep -q "^OK (" probe2.txt
+            grep ENGINE logcat.txt | grep '"nets"' | tail -1 | sed 's/.*ENGINE //' | jq -e '[.nets[] | select(.rx > 100000)] | length >= 2'
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: results-api${{ matrix.api }}
           path: |
             instrument.txt
+            probe*.txt
             logcat.txt
           retention-days: 14
       - uses: actions/upload-artifact@v4
@@ -66,6 +100,8 @@ jobs:
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            probe/build/outputs/apk/debug/probe-debug.apk
+            probe/build/outputs/apk/androidTest/debug/probe-debug-androidTest.apk
           retention-days: 30
 
   test-build:
@@ -88,4 +124,4 @@ jobs:
           gh release create test-build -R ${{ github.repository }} --prerelease --target ${{ github.sha }} \
             --title "Test build (not a release)" \
             --notes "Built from ${{ github.sha }} for testing on a real phone over USB. Not for daily use." \
-            app-debug.apk app-debug-androidTest.apk
+            app-debug.apk app-debug-androidTest.apk probe-debug.apk probe-debug-androidTest.apk

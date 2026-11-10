@@ -21,6 +21,11 @@ class MainActivity : Activity() {
         out = TextView(this).apply { setPadding(32, 32, 32, 32); textSize = 14f; text = "Waiting for Wi-Fi and mobile data…" }
         val check = Button(this).apply { text = "Check both networks"; setOnClickListener { runCheck() } }
         val vpn = Button(this).apply { text = "Start test VPN"; setOnClickListener { startVpn() } }
+        val merge = Button(this).apply { text = "Start merging"; setOnClickListener { startMerge() } }
+        val unmerge = Button(this).apply {
+            text = "Stop merging"
+            setOnClickListener { startService(Intent(this@MainActivity, MergeVpnService::class.java).setAction(MergeVpnService.ACTION_STOP)) }
+        }
         val stop = Button(this).apply {
             text = "Stop test VPN"
             setOnClickListener { startService(Intent(this@MainActivity, SpikeVpnService::class.java).setAction(SpikeVpnService.ACTION_STOP)) }
@@ -28,10 +33,23 @@ class MainActivity : Activity() {
         setContentView(ScrollView(this).apply {
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
-                addView(check); addView(vpn); addView(stop); addView(out)
+                addView(merge); addView(unmerge); addView(check); addView(vpn); addView(stop); addView(out)
             })
         })
         runCheck()
+        // tests: adb shell am start -n dev.netmerge.android/.MainActivity --ez merge true|false
+        if (intent.hasExtra("merge")) {
+            if (intent.getBooleanExtra("merge", false)) startMerge()
+            else startService(Intent(this, MergeVpnService::class.java).setAction(MergeVpnService.ACTION_STOP))
+        }
+    }
+
+    private var pendingMerge = false
+
+    private fun startMerge() {
+        val consent = VpnService.prepare(this)
+        pendingMerge = true
+        if (consent != null) startActivityForResult(consent, 2) else onActivityResult(2, RESULT_OK, null)
     }
 
     private fun runCheck() {
@@ -50,6 +68,12 @@ class MainActivity : Activity() {
 
     @Deprecated("plain Activity API, enough for a test screen")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == 2 && resultCode == RESULT_OK && pendingMerge) {
+            pendingMerge = false
+            startService(Intent(this, MergeVpnService::class.java))
+            out.text = "Merging started"
+            return
+        }
         if (requestCode == 1 && resultCode == RESULT_OK) {
             startService(Intent(this, SpikeVpnService::class.java))
             out.postDelayed({ runCheck() }, 1500)

@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "netmerge-android"
-include(":app")
+include(":app", ":probe")
