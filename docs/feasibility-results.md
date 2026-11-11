@@ -83,7 +83,24 @@ network switched off at 10 s and on again at 30 s; Wi-Fi was slower than usual t
 Pages opened after each drop. The emulators in CI now run the same Wi-Fi drop on every change and fail on a stall of
 5 s or more (both: 0-3 errors, longest stall 0.1 s).
 
-## 5. Still open
+## 5. Processor cost and the VPN's packet size (job 029, 2026-11-11)
+
+The engine's own stack handles every packet between the apps and the VPN, so fewer, bigger packets cost less. Same
+merged 16-connection download for 30 s, alternating, twice each:
+
+| VPN packet size (MTU) | Speed | Processor per GB |
+| --- | --- | --- |
+| 1500 | 57.0 / 61.4 Mbps | 62.5 / 64.0 s |
+| 9000 | 64.4 / 63.9 Mbps | 44.3 / 44.7 s |
+| 16000 | 59.6 / 56.2 Mbps | 42.6 / 45.2 s |
+
+9000 is now the default: about 30% less processor for the same speed (the networks themselves still use their own
+packet size; only the path between the apps and the engine changes). 16000 gains nothing more.
+
+Battery: the first battery test (4 x 12 minutes) measured nothing: on this phone the battery's charge counter stays
+at its "full" value while the battery shows 100%. The battery test now also adds up the battery current every second.
+
+## 6. Still open
 
 - A measured battery drain with the cable unplugged (30-60 minutes, merging on vs off).
 - Keeping mobile data up when nothing is downloading: its cost while idle.
