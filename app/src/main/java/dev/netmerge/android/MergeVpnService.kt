@@ -1,7 +1,12 @@
 package dev.netmerge.android
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.net.VpnService
+import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 import kotlin.concurrent.thread
@@ -22,8 +27,27 @@ class MergeVpnService : VpnService() {
         }
         if (running) return START_STICKY
         stopped = false
+        goForeground()
         thread(name = "merge-start") { startMerging() }
         return START_STICKY
+    }
+
+    /** A merging VPN must run in the foreground (with its notification), or the phone throttles it when the
+     *  screen is off. Seen on a Galaxy S26 Ultra: a merged download dropped from about 85 to 26 Mbps. */
+    private fun goForeground() {
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(NotificationChannel("merge", "Merging", NotificationManager.IMPORTANCE_LOW))
+        val n = Notification.Builder(this, "merge")
+            .setContentTitle("NetMerge is merging Wi-Fi and mobile data")
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setOngoing(true)
+            .build()
+        try {
+            if (Build.VERSION.SDK_INT >= 34) startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED)
+            else startForeground(1, n)
+        } catch (e: Exception) {
+            Log.e(TAG, "ENGINE could not run in the foreground: $e")
+        }
     }
 
     private fun startMerging() {
@@ -78,6 +102,7 @@ class MergeVpnService : VpnService() {
         running = false
         nets?.stop()
         nets = null
+        runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
         Log.i(TAG, "ENGINE stopped")
     }
 
