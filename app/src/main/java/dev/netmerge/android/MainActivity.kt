@@ -32,6 +32,8 @@ class MainActivity : Activity() {
     private lateinit var toggle: Button
     private lateinit var rows: Map<String, Row>
     private lateinit var diag: TextView
+    private lateinit var usage: TextView
+    private lateinit var settingsRows: List<Button>
     private val ui = Handler(Looper.getMainLooper())
     private val last = HashMap<String, Pair<Long, Long>>() // network -> (rx bytes, time ms)
     private var pendingMerge = false
@@ -80,6 +82,26 @@ class MainActivity : Activity() {
         }
         rows = linkedMapOf("wifi" to row("Wi-Fi"), "mobile" to row("Mobile data"))
         diag = text(13f, muted)
+        usage = text(14f, muted)
+        fun setting(label: () -> String, onTap: () -> Unit) = Button(this).apply {
+            isAllCaps = false; textSize = 15f; gravity = Gravity.START or Gravity.CENTER_VERTICAL
+            setTextColor(fg); text = label()
+            background = GradientDrawable().apply { cornerRadius = dp(14).toFloat(); setColor(card) }
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            setOnClickListener { onTap(); text = label() }
+        }
+        val onDemandRow = setting({
+            "Mobile data only when it helps: " + (if (Settings.onDemand(this)) "on" else "off") +
+                "\nOn: mobile data is let go after a quiet minute (saves battery) and comes back for big downloads."
+        }) { Settings.setOnDemand(this, !Settings.onDemand(this)) }
+        val limitRow = setting({
+            val l = Settings.limitMB(this)
+            "Daily limit for mobile data used by merging: " + (if (l == 0) "none" else if (l < 1000) "$l MB" else "${l / 1000} GB")
+        }) {
+            val all = Settings.limits
+            Settings.setLimitMB(this, all[(all.indexOf(Settings.limitMB(this)) + 1) % all.size])
+        }
+        settingsRows = listOf(onDemandRow, limitRow)
         val check = Button(this).apply {
             text = "Check both networks"; isAllCaps = false
             setTextColor(Color.rgb(30, 110, 230)); background = null; setPadding(0, dp(8), dp(8), dp(8))
@@ -99,6 +121,8 @@ class MainActivity : Activity() {
             addView(total, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(20) })
             addView(toggle, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16); bottomMargin = dp(20) })
             for (r in rows.values) addView(r.box, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
+            addView(usage, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
+            for (r in settingsRows) addView(r, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) })
             addView(note, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
             addView(check, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(20); gravity = Gravity.START })
             addView(diag)
@@ -146,6 +170,11 @@ class MainActivity : Activity() {
 
     private fun refresh() {
         val running = MergeVpnService.running
+        val used = Usage.mobileToday(this)
+        val limit = Settings.limitMB(this)
+        usage.text = "Mobile data used by merging today: " + mb(used) +
+            (if (limit > 0) " of ${if (limit < 1000) "$limit MB" else "${limit / 1000} GB"}" else "") +
+            (if (running && MergeVpnService.overLimit) " (limit reached: merging uses Wi-Fi only until tomorrow)" else "")
         toggle.text = if (running) "Stop merging" else "Start merging"
         toggle.background = GradientDrawable().apply {
             cornerRadius = 28 * resources.displayMetrics.density
@@ -197,6 +226,8 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun mb(b: Long) = if (b < 1_000_000_000) "%.0f MB".format(b / 1e6) else "%.2f GB".format(b / 1e9)
+
     private fun setBar(r: Row, part: Double) {
         val w = r.barBack.width
         r.bar.layoutParams = LinearLayout.LayoutParams((w * part.coerceIn(0.0, 1.0)).toInt(), r.barBack.height.coerceAtLeast(1))
@@ -245,6 +276,7 @@ class MainActivity : Activity() {
             pendingMerge = false
             val i = Intent(this, MergeVpnService::class.java).putExtra("mtu", intent.getIntExtra("mtu", MergeVpnService.DEFAULT_MTU))
             if (intent.hasExtra("ondemand")) i.putExtra("ondemand", intent.getBooleanExtra("ondemand", true))
+            if (intent.hasExtra("limitmb")) i.putExtra("limitmb", intent.getIntExtra("limitmb", 0))
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
         }
     }

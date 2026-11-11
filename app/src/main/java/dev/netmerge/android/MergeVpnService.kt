@@ -31,8 +31,9 @@ class MergeVpnService : VpnService() {
         stopped = false
         mtu = intent?.getIntExtra("mtu", DEFAULT_MTU)?.takeIf { it in 1280..65535 } ?: DEFAULT_MTU
         if (intent?.hasExtra("ondemand") == true) {
-            getSharedPreferences("settings", MODE_PRIVATE).edit().putBoolean("mobileOnDemand", intent.getBooleanExtra("ondemand", false)).apply()
+            Settings.setOnDemand(this, intent.getBooleanExtra("ondemand", false))
         }
+        if (intent?.hasExtra("limitmb") == true) Settings.setLimitMB(this, intent.getIntExtra("limitmb", 0))
         goForeground()
         thread(name = "merge-start") { startMerging() }
         return START_STICKY
@@ -94,9 +95,9 @@ class MergeVpnService : VpnService() {
         MergeTileService.update(this)
         Log.i(TAG, "ENGINE started with $json")
         event("started mtu=$mtu $json")
-        onDemand = getSharedPreferences("settings", MODE_PRIVATE).getBoolean("mobileOnDemand", false)
         thread(name = "merge-stats") {
             var lastRx = -1L
+            var lastMobile = 0L
             while (!stopped) {
                 SystemClock.sleep(2000)
                 val s = mobile.Mobile.stats()
@@ -104,13 +105,18 @@ class MergeVpnService : VpnService() {
                 Log.i(TAG, "ENGINE $s")
                 runCatching { java.io.File(filesDir, "engine.json").writeText(s) }
                 event("stats $s") // a timeline for tests: what each network carried, every 2 s
-                val rx = runCatching {
-                    val a = org.json.JSONObject(s).getJSONArray("nets")
-                    (0 until a.length()).sumOf { a.getJSONObject(it).getLong("rx") }
-                }.getOrDefault(lastRx)
+                val nets = runCatching { org.json.JSONObject(s).getJSONArray("nets") }.getOrNull() ?: continue
+                val all = (0 until nets.length()).map { nets.getJSONObject(it) }
+                val rx = all.sumOf { it.getLong("rx") }
                 val rate = if (lastRx in 0..rx) (rx - lastRx) / 2.0 else 0.0
                 lastRx = rx
-                if (onDemand) mobileOnDemand(rate, n)
+                // mobile data used by merging (counted only while Wi-Fi is there too)
+                val m = all.firstOrNull { it.getString("name") == "mobile" }
+                val mobileNow = if (m == null) 0L else m.getLong("rx") + m.getLong("tx")
+                val used = if (mobileNow >= lastMobile) mobileNow - lastMobile else mobileNow // counters restart when mobile rejoins
+                lastMobile = mobileNow
+                if (n.network(DualNetworks.Kind.WIFI) != null) Usage.add(this, used)
+                mobilePolicy(rate, n)
             }
         }
     }
@@ -119,17 +125,30 @@ class MergeVpnService : VpnService() {
     private var quietFor = 0
 
     /**
-     * Mobile data only when it helps: kept up while there is a lot to download, let go after a minute of little
-     * traffic (Android then keeps only Wi-Fi, which saves battery). Without Wi-Fi, mobile data is always kept.
+     * Whether to keep mobile data up, decided every 2 s:
+     * - without Wi-Fi: always (it is the only way out);
+     * - when merging used up the daily limit for mobile data: no;
+     * - "only when it helps" on: up while there is a lot to download, let go after a quiet minute (saves battery);
+     * - otherwise: always.
      */
-    private fun mobileOnDemand(bytesPerSecond: Double, n: DualNetworks) {
+    private fun mobilePolicy(bytesPerSecond: Double, n: DualNetworks) {
         val wifi = n.network(DualNetworks.Kind.WIFI) != null
         val held = n.held(DualNetworks.Kind.MOBILE)
+        val limit = Settings.limitMB(this).toLong() * 1_000_000
+        overLimit = limit > 0 && Usage.mobileToday(this) >= limit
+        onDemand = Settings.onDemand(this)
         if (bytesPerSecond > BUSY) { busyFor++; quietFor = 0 } else if (bytesPerSecond < QUIET) { quietFor++; busyFor = 0 } else { busyFor = 0; quietFor = 0 }
-        when {
-            !wifi && !held -> { n.hold(DualNetworks.Kind.MOBILE, true); event("mobile held: no Wi-Fi") }
-            wifi && !held && busyFor >= 2 -> { n.hold(DualNetworks.Kind.MOBILE, true); event("mobile held: busy %.0f KB/s".format(bytesPerSecond / 1024)) }
-            wifi && held && quietFor >= 30 -> { n.hold(DualNetworks.Kind.MOBILE, false); quietFor = 0; event("mobile released: quiet for a minute") }
+        val (want, why) = when {
+            !wifi -> true to "no Wi-Fi"
+            overLimit -> false to "daily limit reached"
+            !onDemand -> true to "always"
+            held -> (quietFor < 30) to "quiet for a minute"
+            else -> (busyFor >= 2) to "busy %.0f KB/s".format(bytesPerSecond / 1024)
+        }
+        if (want != held) {
+            n.hold(DualNetworks.Kind.MOBILE, want)
+            if (!want) quietFor = 0
+            event((if (want) "mobile held: " else "mobile released: ") + why)
         }
     }
 
@@ -144,6 +163,7 @@ class MergeVpnService : VpnService() {
     }
 
     private fun stopMerging() {
+        Usage.flush(this)
         stopped = true
         active = false
         if (running) runCatching { mobile.Mobile.stop() }
@@ -186,6 +206,8 @@ class MergeVpnService : VpnService() {
          *  app already opened on Wi-Fi stay there (apps reuse them), so a download that started while mobile data
          *  was let go gains less. Worth it only if keeping mobile data up costs real battery (being measured). */
         @Volatile var onDemand = false
+        /** Merging used up today's limit for mobile data (shown on the screen). */
+        @Volatile var overLimit = false
         private const val BUSY = 1_000_000.0 // bytes per second for 4 s: merging can help, bring mobile data up
         private const val QUIET = 100_000.0 // bytes per second for a minute: nothing to gain, let mobile data go
         @Volatile var running = false
