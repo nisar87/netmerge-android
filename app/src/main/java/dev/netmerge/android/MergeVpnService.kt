@@ -19,6 +19,7 @@ class MergeVpnService : VpnService() {
     private var nets: DualNetworks? = null
     @Volatile private var stopped = false
     @Volatile private var active = false // starting or running
+    @Volatile private var generation = 0 // each start gets its own number; threads of an older start stop
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -35,7 +36,8 @@ class MergeVpnService : VpnService() {
         }
         if (intent?.hasExtra("limitmb") == true) Settings.setLimitMB(this, intent.getIntExtra("limitmb", 0))
         goForeground()
-        thread(name = "merge-start") { startMerging() }
+        val gen = ++generation
+        thread(name = "merge-start") { startMerging(gen) }
         return START_STICKY
     }
 
@@ -64,10 +66,10 @@ class MergeVpnService : VpnService() {
         }
     }
 
-    private fun startMerging() {
+    private fun startMerging(gen: Int) {
         val n = DualNetworks(this) { networksChanged() }.also { nets = it; it.start() }
         n.awaitBoth(15_000) // start with what is there; a network that comes later joins by itself
-        if (stopped) return // stopped while waiting for the networks
+        if (stopped || gen != generation) return // stopped while waiting for the networks
         val pfd = Builder()
             .setSession("NetMerge")
             .setMtu(mtu)
@@ -98,7 +100,8 @@ class MergeVpnService : VpnService() {
         thread(name = "merge-stats") {
             var lastRx = -1L
             var lastMobile = 0L
-            while (!stopped) {
+            // a stop followed at once by a new start must end this loop: it belongs to the old networks
+            while (!stopped && gen == generation) {
                 SystemClock.sleep(2000)
                 val s = mobile.Mobile.stats()
                 if (s.isEmpty()) continue
@@ -164,6 +167,7 @@ class MergeVpnService : VpnService() {
 
     private fun stopMerging() {
         Usage.flush(this)
+        generation++
         stopped = true
         active = false
         if (running) runCatching { mobile.Mobile.stop() }
