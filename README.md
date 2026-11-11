@@ -1,21 +1,38 @@
-# NetMerge for Android (early test)
+# NetMerge for Android (test builds)
 
-The idea: use Wi-Fi and mobile data at the same time on an Android phone, the way NetMerge merges a PC's connections.
-New connections are spread over both, so downloads, app stores and browsing many sites get faster; one single
-connection still uses one network.
+Uses Wi-Fi and mobile data at the same time on an Android phone, the way NetMerge merges a PC's connections. The app
+runs a VPN on the phone that catches every app's traffic; each **new connection** goes out on Wi-Fi or mobile data,
+more of them on the faster one. Downloads, app stores, browsers and streaming open many connections and get faster;
+one single connection still uses one network.
 
-**Status: feasibility test, not an app yet.** This repository currently answers two questions:
+**Status: working test builds, not released.** Measured on a Galaxy S26 Ultra: about +38% for downloads with many
+connections when both networks are fast; dropping a network in the middle of a download stalls it for under 3 s.
+Results, costs and open questions: [docs/feasibility-results.md](docs/feasibility-results.md).
 
-1. Do Wi-Fi and mobile data stay up together when an app asks for both?
-2. Can a connection be sent out on each one separately, also while the app runs a VPN on the phone (the way it will
-   catch every app's traffic)?
+## What is in it
 
-`DualNetworkTest` checks both on GitHub's Android emulator for every change (see `.github/workflows/ci.yml`), and the
-same test runs on a real phone over USB.
+| Part | What it does |
+| --- | --- |
+| `engine/` (Go, built with gomobile) | The VPN's packet engine (tun2socks / gVisor) and the splitter that picks a network per connection (`split/`, unit-tested) |
+| `app/` | The app: screen with live speed per network, settings, the VPN service, quick settings tile |
+| `probe/` | A separate test app that behaves like any app (pages, downloads, battery and long-run tests) |
+| `ci/` | What runs on the emulators for every change |
 
-## How it will be tested
+The splitter learns each network's speed from what it carries, keeps it while idle, gives a network that has not
+shown its speed a fair chance, and gives a network far slower than the fastest only a trickle of new connections.
+When a network leaves, its connections are closed at once so apps reconnect on the one that works.
 
-1. The merging logic (in Go, shared ideas with NetMerge) is tested on a computer with simulated lines.
-2. Every change runs on an Android emulator with Wi-Fi and mobile data.
-3. A real phone over USB (adb) for what an emulator cannot show.
-4. A self-test button in the app for daily-life checks (battery, the phone maker's background limits, real speeds).
+Settings: mobile data only when it helps (let go after a quiet minute, back for big downloads; off by default) and a
+daily limit for mobile data used by merging.
+
+## How it is tested
+
+1. `go test ./split` for the splitter.
+2. Every change runs on Android emulators (API 34 and 35) with Wi-Fi and mobile data: both networks up, connections
+   leave on each network, merged pages and downloads, Wi-Fi switched off in the middle of a download (fails on a stall
+   of 5 s or more), mobile data on demand, the daily limit, and screenshots of the screen (in the CI log).
+3. Every push to `main` puts test builds on the `test-build` pre-release; a real phone runs them over adb (speed,
+   processor time, battery, dropouts, hours-long runs).
+
+Test builds are signed with a public test key (`app/test-signing.jks`) so a new build installs over the last one;
+a release will use a private key.
