@@ -100,7 +100,27 @@ packet size; only the path between the apps and the engine changes). 16000 gains
 Battery: the first battery test (4 x 12 minutes) measured nothing: on this phone the battery's charge counter stays
 at its "full" value while the battery shows 100%. The battery test now also adds up the battery current every second.
 
-## 6. Still open
+## 6. Battery, measured (job 026/029 battery part, 2026-11-11, unplugged, screen off)
+
+Four blocks of 12 minutes, alternating; each block: a 140 MB download every 5 minutes (3 per block), idle in
+between; the battery current added up every second. Build with VPN packet size 1500, mobile data always kept up.
+
+| Block | Battery used | Per hour | Downloads |
+| --- | --- | --- | --- |
+| Not merged 1 | 18.5 mAh | 92 mAh | 62, 64, 66 Mbps |
+| Merged 1 | 36.9 mAh | 185 mAh | 51, 39, 31 Mbps |
+| Not merged 2 | 17.3 mAh | 86 mAh | 67, 69, 68 Mbps |
+| Merged 2 | 30.0 mAh | 150 mAh | 50, 70, 67 Mbps |
+
+- Merging roughly doubled the drain for this kind of use: about +65-95 mAh per hour, 1.3-1.9% of the 5000 mAh
+  battery per hour.
+- Merged downloads were not faster this time: mobile data was slow that morning (its learned speed fell to about
+  1 Mbps) and still got about a quarter of the new connections, so the last pieces of each download waited for it.
+  Two causes found in the splitter: (1) learned speeds were forgotten while idle (between downloads both fell to the
+  same floor, so the next download split about evenly); (2) a network far slower than the other still got its share,
+  which only delays a download of fixed size. Fixed on the next branch (see below).
+
+## 7. Still open
 
 - A measured battery drain with the cable unplugged (30-60 minutes, merging on vs off).
 - Keeping mobile data up when nothing is downloading: its cost while idle.
