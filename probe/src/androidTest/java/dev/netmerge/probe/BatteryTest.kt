@@ -38,11 +38,9 @@ class BatteryTest {
             InstrumentationRegistry.getInstrumentation().sendStatus(0, Bundle().apply { putString("battery", "$label $s") })
         }
         // The charge counter does not move while the battery reads 100% (seen on a Galaxy S26 Ultra), so the battery
-        // current is also read every second and added up. Its unit and sign differ between phones: the size of the
-        // readings tells microamps from milliamps; discharge is whichever sign the readings mostly have.
+        // current (microamps; negative while discharging on that phone) is also read every second and added up.
         val running = java.util.concurrent.atomic.AtomicBoolean(true)
         var sumRaw = 0.0
-        var n = 0
         val meter = Thread {
             var last = SystemClock.elapsedRealtime()
             while (running.get()) {
@@ -50,12 +48,12 @@ class BatteryTest {
                 val now = SystemClock.elapsedRealtime()
                 val c = bm.getLongProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
                 if (c != Long.MIN_VALUE) {
-                    synchronized(this) { sumRaw += c * (now - last) / 3_600_000.0; n++ }
+                    synchronized(this) { sumRaw += c * (now - last) / 3_600_000.0 }
                 }
                 last = now
             }
         }.apply { start() }
-        fun used(): Double = synchronized(this) { sumRaw }.let { raw -> kotlin.math.abs(raw) / (if (kotlin.math.abs(raw) > 50_000) 1000.0 else 1.0) }
+        fun used(): Double = kotlin.math.abs(synchronized(this) { sumRaw }) / 1000.0 // microampere-hours -> mAh
         try {
             val start = sample()
             val t0 = SystemClock.elapsedRealtime()
