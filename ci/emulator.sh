@@ -35,6 +35,7 @@ sh ci/ondemand.sh || exit 1
 sh ci/limit.sh || exit 1
 sh ci/exclude.sh || exit 1
 sh ci/battery.sh || exit 1
+sh ci/system.sh || exit 1
 sh ci/blocking.sh || exit 1
 sh ci/upload.sh || true
 adb shell am start -n dev.netmerge.android/.MainActivity --ez merge true; sleep 4

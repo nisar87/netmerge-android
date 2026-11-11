@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Test builds only: the first spike's VPN (a plain pass-through) for DualNetworkTest. Not in the release build:
+     a second VPN service there made Android's "Always-on VPN" start this one after a restart instead of the merging
+     VPN, which left the phone with a VPN that carried nothing (found on a Galaxy S26 Ultra). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <service
+            android:name=".SpikeVpnService"
+            android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>

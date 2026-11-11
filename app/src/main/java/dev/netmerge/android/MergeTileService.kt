@@ -19,10 +19,14 @@ class MergeTileService : TileService() {
         super.onClick()
         if (MergeVpnService.running) {
             startService(Intent(this, MergeVpnService::class.java).setAction(MergeVpnService.ACTION_STOP))
-        } else if (VpnService.prepare(this) == null) {
-            startForegroundService(Intent(this, MergeVpnService::class.java))
+        } else if (VpnService.prepare(this) == null && runCatching {
+                startForegroundService(Intent(this, MergeVpnService::class.java))
+            }.isSuccess) {
+            // started from the tile
         } else {
-            // Android must ask once whether NetMerge may run a VPN: that needs the app's screen
+            // Android must ask once whether NetMerge may run a VPN, or (newer Android) does not let a tile start a
+            // foreground service while the app is in the background: the app's screen starts it then. Seen on a
+            // Galaxy S26 Ultra (Android 17): the tile stopped merging but could not start it.
             val i = Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("merge", true)
             if (Build.VERSION.SDK_INT >= 34) {
                 startActivityAndCollapse(android.app.PendingIntent.getActivity(this, 0, i, android.app.PendingIntent.FLAG_IMMUTABLE))
