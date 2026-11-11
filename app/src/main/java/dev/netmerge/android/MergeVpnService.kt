@@ -90,16 +90,27 @@ class MergeVpnService : VpnService() {
             .establish()
         if (pfd == null) {
             Log.e(TAG, "ENGINE the VPN could not be started (permission?)")
+            event("start failed: no VPN (permission?)")
+            failed(gen)
             return
         }
         val json = n.engineJson()
-        try {
-            mobile.Mobile.start(pfd.detachFd().toLong(), mtu.toLong(), json)
-        } catch (e: Exception) {
-            Log.e(TAG, "ENGINE failed to start: $e")
-            return
+        val fd = pfd.detachFd().toLong()
+        val err = runCatching { mobile.Mobile.start(fd, mtu.toLong(), json) }.exceptionOrNull()
+        if (err != null) {
+            // "already running": an engine of an earlier start was still there; stop it and try once more
+            runCatching { mobile.Mobile.stop() }
+            val again = runCatching { mobile.Mobile.start(fd, mtu.toLong(), json) }.exceptionOrNull()
+            event("start: engine said ${err.message}; ${if (again == null) "started on the second try" else "second try failed: ${again.message}"}")
+            if (again != null) {
+                Log.e(TAG, "ENGINE failed to start: $again")
+                runCatching { android.os.ParcelFileDescriptor.adoptFd(fd.toInt()).close() }
+                failed(gen)
+                return
+            }
         }
         running = true
+        retried = false
         MergeTileService.update(this)
         Log.i(TAG, "ENGINE started with $json")
         event("started mtu=$mtu $json")
@@ -169,6 +180,26 @@ class MergeVpnService : VpnService() {
         runCatching { setUnderlyingNetworks(n.all().toTypedArray()) }
         Log.i(TAG, "ENGINE networks now $json")
         event("networks $json")
+    }
+
+    /** Starting failed: start again once after 2 s (the earlier VPN may still have been closing), then give up. */
+    private var retried = false
+
+    private fun failed(gen: Int) {
+        nets?.stop()
+        nets = null
+        if (retried || stopped || gen != generation) {
+            active = false
+            return
+        }
+        retried = true
+        thread(name = "merge-retry") {
+            SystemClock.sleep(2000)
+            if (!stopped && gen == generation) {
+                event("start: trying again")
+                startMerging(gen)
+            }
+        }
     }
 
     private fun stopMerging() {
