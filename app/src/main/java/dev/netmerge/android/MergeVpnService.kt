@@ -29,7 +29,7 @@ class MergeVpnService : VpnService() {
         stopped = false
         mtu = intent?.getIntExtra("mtu", DEFAULT_MTU)?.takeIf { it in 1280..65535 } ?: DEFAULT_MTU
         if (intent?.hasExtra("ondemand") == true) {
-            getSharedPreferences("settings", MODE_PRIVATE).edit().putBoolean("mobileOnDemand", intent.getBooleanExtra("ondemand", true)).apply()
+            getSharedPreferences("settings", MODE_PRIVATE).edit().putBoolean("mobileOnDemand", intent.getBooleanExtra("ondemand", false)).apply()
         }
         goForeground()
         thread(name = "merge-start") { startMerging() }
@@ -91,7 +91,7 @@ class MergeVpnService : VpnService() {
         MergeTileService.update(this)
         Log.i(TAG, "ENGINE started with $json")
         event("started mtu=$mtu $json")
-        onDemand = getSharedPreferences("settings", MODE_PRIVATE).getBoolean("mobileOnDemand", true)
+        onDemand = getSharedPreferences("settings", MODE_PRIVATE).getBoolean("mobileOnDemand", false)
         thread(name = "merge-stats") {
             var lastRx = -1L
             while (!stopped) {
@@ -178,8 +178,10 @@ class MergeVpnService : VpnService() {
          *  networks themselves still use their own size). Tests can pass "mtu" to compare. */
         const val DEFAULT_MTU = 1500
         @Volatile var mtu = DEFAULT_MTU
-        /** Mobile data only while there is a lot to download (see mobileOnDemand). */
-        @Volatile var onDemand = true
+        /** Mobile data only while there is a lot to download (see mobileOnDemand). Off by default: connections an
+         *  app already opened on Wi-Fi stay there (apps reuse them), so a download that started while mobile data
+         *  was let go gains less. Worth it only if keeping mobile data up costs real battery (being measured). */
+        @Volatile var onDemand = false
         private const val BUSY = 1_000_000.0 // bytes per second for 4 s: merging can help, bring mobile data up
         private const val QUIET = 100_000.0 // bytes per second for a minute: nothing to gain, let mobile data go
         @Volatile var running = false
