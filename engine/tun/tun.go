@@ -113,8 +113,14 @@ func (e *Engine) dial(proto string, ip net.IP, port int) (net.Conn, split.Net, e
 
 var errNoNetwork = &net.AddrError{Err: "no network can reach this address"}
 
-// HandleTCP relays one TCP connection of an app.
-func (e *Engine) HandleTCP(c adapter.TCPConn) {
+// HandleTCP and HandleUDP are called from the stack's packet loop: they must return at once.
+func (e *Engine) HandleTCP(c adapter.TCPConn) { go e.relayTCP(c) }
+
+// HandleUDP: see HandleTCP.
+func (e *Engine) HandleUDP(c adapter.UDPConn) { go e.relayUDP(c) }
+
+// relayTCP relays one TCP connection of an app.
+func (e *Engine) relayTCP(c adapter.TCPConn) {
 	defer c.Close()
 	ip, port := dest(c.ID())
 	out, n, err := e.dial("tcp", ip, port)
@@ -132,8 +138,8 @@ func (e *Engine) HandleTCP(c adapter.TCPConn) {
 	<-done
 }
 
-// HandleUDP relays one UDP flow (DNS, QUIC, calls) on one network for its whole life.
-func (e *Engine) HandleUDP(c adapter.UDPConn) {
+// relayUDP relays one UDP flow (DNS, QUIC, calls) on one network for its whole life.
+func (e *Engine) relayUDP(c adapter.UDPConn) {
 	defer c.Close()
 	ip, port := dest(c.ID())
 	out, n, err := e.dial("udp", ip, port)
