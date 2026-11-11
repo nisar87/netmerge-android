@@ -283,6 +283,7 @@ class MainActivity : Activity() {
             val i = Intent(this, MergeVpnService::class.java).putExtra("mtu", intent.getIntExtra("mtu", MergeVpnService.DEFAULT_MTU))
             if (intent.hasExtra("ondemand")) i.putExtra("ondemand", intent.getBooleanExtra("ondemand", true))
             if (intent.hasExtra("limitmb")) i.putExtra("limitmb", intent.getIntExtra("limitmb", 0))
+            for (k in listOf("exclude", "include")) intent.getStringExtra(k)?.let { i.putExtra(k, it) }
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
         }
     }

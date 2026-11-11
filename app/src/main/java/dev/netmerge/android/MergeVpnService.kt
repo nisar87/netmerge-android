@@ -35,6 +35,8 @@ class MergeVpnService : VpnService() {
             Settings.setOnDemand(this, intent.getBooleanExtra("ondemand", false))
         }
         if (intent?.hasExtra("limitmb") == true) Settings.setLimitMB(this, intent.getIntExtra("limitmb", 0))
+        intent?.getStringExtra("exclude")?.let { Excluded.set(this, it, true) } // tests
+        intent?.getStringExtra("include")?.let { Excluded.set(this, it, false) }
         goForeground()
         val gen = ++generation
         thread(name = "merge-start") { startMerging(gen) }
