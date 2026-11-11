@@ -67,4 +67,9 @@ adb shell run-as dev.netmerge.android cat files/events.log | grep -m1 started | 
 adb shell am instrument -w -r -e class dev.netmerge.probe.ProbeTest#pagesOpen dev.netmerge.probe.test/androidx.test.runner.AndroidJUnitRunner > release.txt; cat release.txt | tail -3
 adb shell dumpsys connectivity | grep -c "VPN CONNECTED" || true
 grep -q "^OK (" release.txt || { echo "pages failed through the release build"; exit 1; }
+# Always-on VPN (and a restart) starts the VPN service Android finds for the app: the release must hold exactly one, the
+# merging one. With a second one (the first spike's), a phone came back from a restart with a VPN that carried nothing.
+vpns=$(adb shell cmd package query-services -a android.net.VpnService | grep -o "dev.netmerge.android/[A-Za-z.]*" | sort -u)
+echo "VPN services in the release: $vpns"
+[ "$vpns" = "dev.netmerge.android/.MergeVpnService" ] || { echo "the release must hold only MergeVpnService"; exit 1; }
 echo "release build: OK"
