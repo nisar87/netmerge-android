@@ -40,6 +40,7 @@ type Engine struct {
 	stack *stack.Stack
 	dev   interface{ Close() }
 	stop  chan struct{}
+	fd    int // the VPN's file descriptor (see closeTun)
 	once  sync.Once
 	fails atomic.Int64
 
@@ -59,7 +60,7 @@ func Start(fd int, mtu int, nets []split.Net) (*Engine, error) {
 
 // StartWith is Start with a block list that outlives one engine (the list is loaded once, not at every start).
 func StartWith(fd int, mtu int, nets []split.Net, block *dnsblock.Blocker) (*Engine, error) {
-	e := &Engine{stop: make(chan struct{}), conns: map[net.Conn]int64{}, Block: block}
+	e := &Engine{stop: make(chan struct{}), conns: map[net.Conn]int64{}, Block: block, fd: fd}
 	e.Split.SetNets(nets)
 	dev, err := fdbased.Open(strconv.Itoa(fd), uint32(mtu), 0)
 	if err != nil {
@@ -90,7 +91,22 @@ func (e *Engine) Stop() {
 		if e.dev != nil {
 			e.dev.Close()
 		}
+		closeTun(e.fd)
 	})
+}
+
+// closeTun closes the VPN's file descriptor if it is still open. The device's Close leaves it open, and Android keeps
+// the VPN up for as long as it is open: when the app paused merging (battery) but stayed running, every app's traffic
+// went into a VPN that no engine read any more (seen on the emulator: the VPN was still up 20 s later). The number is
+// closed only while it still is the tun device (/dev/net/tun, char 10:200), never a file that reused the number.
+func closeTun(fd int) {
+	var st syscall.Stat_t
+	if fd < 0 || syscall.Fstat(fd, &st) != nil {
+		return
+	}
+	if st.Mode&syscall.S_IFMT == syscall.S_IFCHR && uint64(st.Rdev) == 10<<8|200 {
+		syscall.Close(fd)
+	}
 }
 
 // SetNets updates the networks. Connections on a network that left (or came back as a new network, with a new
