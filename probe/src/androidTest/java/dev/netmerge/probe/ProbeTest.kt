@@ -78,4 +78,56 @@ class ProbeTest {
         InstrumentationRegistry.getInstrumentation().sendStatus(0, android.os.Bundle().apply { putString("dns", report.toString()) })
         org.junit.Assert.assertEquals(report.toString(), 0, bad)
     }
+
+    /**
+     * Upload as a speed test does (-e upload 1 -e conns 8 -e secs 15): what the app manages to write, per second.
+     * "peak" far above "average" in the first seconds means data was taken in faster than it left the phone.
+     */
+    @Test
+    fun upload() {
+        val args = InstrumentationRegistry.getArguments()
+        org.junit.Assume.assumeTrue("runs only with -e upload 1", args.getString("upload") != null)
+        val conns = args.getString("conns")?.toInt() ?: 8
+        val secs = args.getString("secs")?.toInt() ?: 15
+        val url = args.getString("url") ?: "https://speed.cloudflare.com/__up"
+        val t0 = SystemClock.elapsedRealtime()
+        val perSecond = java.util.concurrent.atomic.AtomicLongArray(secs + 2)
+        val errors = AtomicLong()
+        val chunk = ByteArray(64 * 1024) { (it * 31).toByte() }
+        val workers = (1..conns).map {
+            thread {
+                while (SystemClock.elapsedRealtime() - t0 < secs * 1000L) {
+                    try {
+                        val c = URL(url).openConnection() as HttpURLConnection
+                        c.requestMethod = "POST"
+                        c.doOutput = true
+                        c.connectTimeout = 10_000
+                        c.readTimeout = 20_000
+                        c.setFixedLengthStreamingMode(25L shl 20) // 25 MB per request
+                        c.setRequestProperty("Content-Type", "application/octet-stream")
+                        c.outputStream.use { out ->
+                            var sent = 0L
+                            while (sent < (25L shl 20) && SystemClock.elapsedRealtime() - t0 < secs * 1000L) {
+                                out.write(chunk)
+                                sent += chunk.size
+                                val s = ((SystemClock.elapsedRealtime() - t0) / 1000).toInt().coerceAtMost(secs + 1)
+                                perSecond.addAndGet(s, chunk.size.toLong())
+                            }
+                        }
+                        runCatching { c.responseCode }
+                        c.disconnect()
+                    } catch (e: Exception) {
+                        errors.incrementAndGet()
+                    }
+                }
+            }
+        }
+        workers.forEach { it.join(((secs + 30) * 1000).toLong()) }
+        val rates = (0 until secs).map { perSecond.get(it) * 8 / 1e6 }
+        val avg = rates.drop(2).average()
+        val report = "upload=average %.1f Mbps (after the first 2 s), first second %.1f, peak %.1f, errors %d; per second: %s".format(
+            avg, rates.first(), rates.maxOrNull() ?: 0.0, errors.get(), rates.joinToString(" ") { "%.0f".format(it) })
+        Log.i("NetMergeProbe", report)
+        InstrumentationRegistry.getInstrumentation().sendStatus(0, Bundle().apply { putString("upload", report) })
+    }
 }

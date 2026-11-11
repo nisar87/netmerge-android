@@ -35,6 +35,7 @@ sh ci/ondemand.sh || exit 1
 sh ci/limit.sh || exit 1
 sh ci/exclude.sh || exit 1
 sh ci/blocking.sh || exit 1
+sh ci/upload.sh || true
 adb shell am start -n dev.netmerge.android/.MainActivity --ez merge true; sleep 4
 (adb shell am instrument -w -r -e class dev.netmerge.probe.ProbeTest#download -e conns 8 -e secs 12 -e size 4000000000 dev.netmerge.probe.test/androidx.test.runner.AndroidJUnitRunner > /dev/null &) ; sleep 6
 adb shell am start -n dev.netmerge.android/.MainActivity; sleep 3; adb shell screencap -p /sdcard/screen-merging.png; adb pull /sdcard/screen-merging.png . || true
