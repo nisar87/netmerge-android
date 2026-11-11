@@ -118,3 +118,41 @@ func TestJoiningNetworkGetsAFairStart(t *testing.T) {
 		t.Fatalf("mobile got only %d of 100 new connections: %v", got["mobile"], got)
 	}
 }
+
+// A pause does not erase what was learned: after a minute of nothing, the faster network still gets more.
+func TestIdleKeepsLearnedSpeeds(t *testing.T) {
+	var s Splitter
+	s.SetNets([]Net{{Name: "wifi", V4: true}, {Name: "mobile", V4: true}})
+	wrx, _, _ := s.Counter("wifi")
+	mrx, _, _ := s.Counter("mobile")
+	for i := 0; i < 10; i++ {
+		wrx.Add(8_000_000)
+		mrx.Add(2_000_000)
+		s.Tick(1)
+	}
+	for i := 0; i < 60; i++ {
+		s.Tick(1) // idle
+	}
+	got := picks(&s, 1000, false)
+	share := float64(got["mobile"]) / 1000
+	if share < 0.15 || share > 0.25 {
+		t.Fatalf("mobile share after a pause %.2f, want about 0.2: %v", share, got)
+	}
+}
+
+// A network far slower than the other gets only a trickle of new connections.
+func TestVerySlowNetworkGetsATrickle(t *testing.T) {
+	var s Splitter
+	s.SetNets([]Net{{Name: "wifi", V4: true}, {Name: "mobile", V4: true}})
+	wrx, _, _ := s.Counter("wifi")
+	mrx, _, _ := s.Counter("mobile")
+	for i := 0; i < 120; i++ {
+		wrx.Add(8_000_000)
+		mrx.Add(130_000) // about 1 Mbps
+		s.Tick(1)
+	}
+	got := picks(&s, 1000, false)
+	if got["mobile"] > 50 || got["mobile"] < 10 {
+		t.Fatalf("very slow mobile got %d of 1000 new connections, want a trickle (about 30): %v", got["mobile"], got)
+	}
+}
