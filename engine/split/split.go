@@ -131,7 +131,7 @@ func (s *Splitter) Pick(v6 bool) (n Net, ok bool) {
 		if (v6 && !l.V6) || (!v6 && !l.V4) {
 			continue
 		}
-		w := weight(l.cap, fastest)
+		w := l.weight(fastest)
 		l.cur += w
 		total += w
 		if best == nil || l.cur > best.cur {
@@ -146,13 +146,20 @@ func (s *Splitter) Pick(v6 bool) (n Net, ok bool) {
 	return best.Net, true
 }
 
-// weight is a network's share of new connections: its learned speed, or a trickle when it is far slower than the
-// fastest network.
-func weight(c, fastest float64) float64 {
-	if c < slowPart*fastest {
+// measured: a network has carried enough to have shown its speed (before that it is never cut to a trickle).
+const measured = 2 << 20
+
+// weight is a network's share of new connections: its learned speed, or a trickle when it has shown that it is far
+// slower than the fastest network.
+func (l *line) weight(fastest float64) float64 {
+	if l.rx.Load() <= measured {
+		// not shown its speed yet: at least a fifth of new connections, so it gets the chance
+		return math.Max(l.cap, fastest/4)
+	}
+	if l.cap < slowPart*fastest {
 		return fastest / trickle
 	}
-	return c
+	return l.cap
 }
 
 // Counter returns the byte and connection counters of a network, for the connection that was given to it.
@@ -179,13 +186,13 @@ func (s *Splitter) Stats() []Stat {
 		}
 	}
 	for _, l := range s.lines {
-		total += weight(l.cap, fastest)
+		total += l.weight(fastest)
 	}
 	out := make([]Stat, 0, len(s.lines))
 	for _, l := range s.lines {
 		st := Stat{Name: l.Name, Rx: l.rx.Load(), Tx: l.tx.Load(), Active: l.active.Load(), Conns: l.conns.Load(), Cap: l.cap}
 		if total > 0 {
-			st.Share = weight(l.cap, fastest) / total
+			st.Share = l.weight(fastest) / total
 		}
 		out = append(out, st)
 	}
