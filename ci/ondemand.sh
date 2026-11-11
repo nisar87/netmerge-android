@@ -3,9 +3,12 @@
 # and both networks carry it.
 P=dev.netmerge.probe.test/androidx.test.runner.AndroidJUnitRunner
 ev() { adb shell run-as dev.netmerge.android cat files/events.log 2>/dev/null; }
-adb shell am force-stop dev.netmerge.android; sleep 2
+adb shell am start -n dev.netmerge.android/.MainActivity --ez merge false; sleep 4
+adb shell am force-stop dev.netmerge.android; sleep 3
 adb shell run-as dev.netmerge.android rm -f files/events.log
-adb shell am start -n dev.netmerge.android/.MainActivity --ez merge true --ez ondemand true
+adb shell am start -S -n dev.netmerge.android/.MainActivity --ez merge true --ez ondemand true
+for i in $(seq 1 20); do ev | grep -q started && break; sleep 1; done
+echo "merging: $(ev | grep started | cut -c1-120)"
 for i in $(seq 1 50); do ev | grep -q "mobile released" && break; sleep 3; done
 ev | grep -q "mobile released" || { echo "mobile data was not let go after a quiet minute"; ev | grep -v stats | tail -5; exit 1; }
 echo "quiet: $(ev | grep 'mobile released' | tail -1)"
