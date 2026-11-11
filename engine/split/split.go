@@ -152,7 +152,11 @@ const measured = 2 << 20
 // weight is a network's share of new connections: its learned speed, or a trickle when it has shown that it is far
 // slower than the fastest network.
 func (l *line) weight(fastest float64) float64 {
-	if l.cap < slowPart*fastest && l.rx.Load() > measured {
+	if l.rx.Load() <= measured {
+		// not shown its speed yet: at least a fifth of new connections, so it gets the chance
+		return math.Max(l.cap, fastest/4)
+	}
+	if l.cap < slowPart*fastest {
 		return fastest / trickle
 	}
 	return l.cap

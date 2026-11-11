@@ -157,7 +157,7 @@ func TestVerySlowNetworkGetsATrickle(t *testing.T) {
 	}
 }
 
-// A network that has not carried anything yet is not cut to a trickle, however fast the other one is.
+// A network that has not carried anything yet gets a fair chance (a fifth), however fast the other one is.
 func TestUnmeasuredNetworkIsNotTrickled(t *testing.T) {
 	var s Splitter
 	s.SetNets([]Net{{Name: "wifi", V4: true}, {Name: "mobile", V4: true}})
@@ -167,7 +167,7 @@ func TestUnmeasuredNetworkIsNotTrickled(t *testing.T) {
 		s.Tick(1)
 	}
 	got := picks(&s, 1000, false)
-	if got["wifi"] < 25 {
+	if got["wifi"] < 150 {
 		t.Fatalf("unmeasured Wi-Fi got only %d of 1000: %v", got["wifi"], got)
 	}
 }
