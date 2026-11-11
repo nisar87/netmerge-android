@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -39,7 +40,7 @@ import kotlinx.coroutines.withContext
  */
 class MainActivity : ComponentActivity() {
     /** A start asked for by a test (or the tile) that still waits for the screen to be ready. */
-    private val pending = mutableStateOf<Intent?>(null)
+    private val pending = mutableStateListOf<Intent>() // in order: a stop and a start sent together both count
     /** A tab asked for from outside ("home", "block", "settings"; used for screenshots). */
     private val tabRequest = mutableStateOf<String?>(null)
 
@@ -47,7 +48,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         if (Build.VERSION.SDK_INT >= 33) requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), 3)
-        if (savedInstanceState == null) pending.value = intent.takeIf { it.hasExtra("merge") }
+        if (savedInstanceState == null && intent.hasExtra("merge")) pending += Intent(intent)
         tabRequest.value = intent.getStringExtra("tab")
         setContent { NetMergeTheme { App(pending, tabRequest) } }
     }
@@ -55,7 +56,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (intent.hasExtra("merge")) pending.value = Intent(intent)
+        if (intent.hasExtra("merge")) pending += Intent(intent)
         intent.getStringExtra("tab")?.let { tabRequest.value = it }
     }
 }
@@ -65,7 +66,7 @@ private enum class Tab(val label: String, val icon: ImageVector) {
 }
 
 @Composable
-private fun App(pending: MutableState<Intent?>, tabRequest: MutableState<String?>) {
+private fun App(pending: SnapshotStateList<Intent>, tabRequest: MutableState<String?>) {
     val ctx = LocalContext.current
     val reader = remember { LiveReader(ctx) }
     var live by remember { mutableStateOf(Live()) }
@@ -105,10 +106,11 @@ private fun App(pending: MutableState<Intent?>, tabRequest: MutableState<String?
         starting = false
     }
     // a start or stop asked for from outside (tests, the quick settings tile)
-    LaunchedEffect(pending.value) {
-        val i = pending.value ?: return@LaunchedEffect
-        pending.value = null
-        if (i.getBooleanExtra("merge", false)) start(i) else stop()
+    LaunchedEffect(pending.size) {
+        while (pending.isNotEmpty()) {
+            val i = pending.removeAt(0)
+            if (i.getBooleanExtra("merge", false)) start(i) else stop()
+        }
     }
 
     LaunchedEffect(tabRequest.value) {

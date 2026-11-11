@@ -27,17 +27,21 @@ class MergeVpnService : VpnService() {
             stopSelf(startId) // not stopSelf(): a start sent right after this stop must still run
             return START_NOT_STICKY
         }
-        if (active) return START_STICKY // already starting or running
-        active = true
-        stopped = false
-        mtu = intent?.getIntExtra("mtu", DEFAULT_MTU)?.takeIf { it in 1280..65535 } ?: DEFAULT_MTU
+        // settings that came with the start (tests): taken also when merging already runs
         if (intent?.hasExtra("ondemand") == true) {
             Settings.setOnDemand(this, intent.getBooleanExtra("ondemand", false))
         }
         if (intent?.hasExtra("limitmb") == true) Settings.setLimitMB(this, intent.getIntExtra("limitmb", 0))
-        if (intent?.hasExtra("blocking") == true) Blocklists.setOn(this, intent.getBooleanExtra("blocking", true))
-        intent?.getStringExtra("exclude")?.let { Excluded.set(this, it, true) } // tests
+        if (intent?.hasExtra("blocking") == true) {
+            Blocklists.setOn(this, intent.getBooleanExtra("blocking", true))
+            if (active) thread { runCatching { Blocklists.apply(this) } }
+        }
+        intent?.getStringExtra("exclude")?.let { Excluded.set(this, it, true) }
         intent?.getStringExtra("include")?.let { Excluded.set(this, it, false) }
+        if (active) return START_STICKY // already starting or running
+        active = true
+        stopped = false
+        mtu = intent?.getIntExtra("mtu", DEFAULT_MTU)?.takeIf { it in 1280..65535 } ?: DEFAULT_MTU
         goForeground()
         val gen = ++generation
         thread(name = "merge-start") { safeStart(gen) }
