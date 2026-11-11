@@ -144,7 +144,19 @@ With mobile data this slow merging gains little (Wi-Fi carried 85%), but it no l
 did in the morning's battery test. The Wi-Fi link to the phone for testing (adb) dropped after this, so battery round
 2 did not start.
 
-## 8. Still open
+## 8. Evening checks on the phone (jobs 037 and 041, 2026-11-11)
+
+- Stop and start at once, three times in a row: merging was on again within 1 s every time (the start-up fix).
+- An app left out of merging: its 77 MB download went past the engine entirely (0 MB through it); put back, 51 MB
+  went through it.
+- Speed (16 connections, 30 s): not merged 50.2 and 53.2 Mbps; merged 56.5 Mbps (Wi-Fi 71% of the data). Earlier
+  in the evening everything ran at 5-9 Mbps, merged or not (the line itself was slow).
+- The block lists downloaded on the phone (ads 1.9 MB, malware 3.4 MB).
+- Installing the new 43 MB debug build failed on the phone (twice: once it hung, once the installer threw an error).
+  The phone tests now install a shrunk release build instead (R8, about a tenth of the size), checked on the
+  emulator first.
+
+## 9. Still open
 
 - Battery round 2 (merged with mobile data always up against mobile data on demand, with the splitter fixes and
   packet size 9000) did not run: the Wi-Fi link for testing (adb over Wi-Fi) closed by itself on the phone in the

@@ -28,6 +28,30 @@ android {
         }
     }
 
+    buildTypes {
+        // The build for real phones: shrunk (about a tenth of the debug build, which carries every Material icon
+        // and all of Compose unshrunk; a 43 MB debug build failed to install on the test phone) and signed with the
+        // test key until there is a release key.
+        getByName("release") {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("debug")
+            // tests on the phone read the app's own files ("adb shell run-as"); off for a real release
+            isDebuggable = true
+        }
+    }
+
+    splits {
+        // one APK per processor type as well: the phone (arm64) gets only its own engine (about half the size)
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "x86_64")
+            isUniversalApk = true
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
