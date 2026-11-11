@@ -37,10 +37,27 @@ class BatteryTest {
             Log.i("NetMergeBattery", "$label $s")
             InstrumentationRegistry.getInstrumentation().sendStatus(0, Bundle().apply { putString("battery", "$label $s") })
         }
+        // The charge counter does not move while the battery reads 100% (seen on a Galaxy S26 Ultra), so the battery
+        // current (microamps; negative while discharging on that phone) is also read every second and added up.
+        val running = java.util.concurrent.atomic.AtomicBoolean(true)
+        var sumRaw = 0.0
+        val meter = Thread {
+            var last = SystemClock.elapsedRealtime()
+            while (running.get()) {
+                SystemClock.sleep(1000)
+                val now = SystemClock.elapsedRealtime()
+                val c = bm.getLongProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
+                if (c != Long.MIN_VALUE) {
+                    synchronized(this) { sumRaw += c * (now - last) / 3_600_000.0 }
+                }
+                last = now
+            }
+        }.apply { start() }
+        fun used(): Double = kotlin.math.abs(synchronized(this) { sumRaw }) / 1000.0 // microampere-hours -> mAh
         try {
             val start = sample()
             val t0 = SystemClock.elapsedRealtime()
-            log("start charge=${start} uAh level=${bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)}%")
+            log("start charge=${start} uAh level=${bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)}% current=${bm.getLongProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)}")
             var downloaded = 0.0
             for (minute in 0 until minutes) {
                 if (minute % 5 == 0) {
@@ -50,11 +67,15 @@ class BatteryTest {
                 }
                 val next = t0 + (minute + 1) * 60_000L
                 while (SystemClock.elapsedRealtime() < next) SystemClock.sleep(1000)
-                log("minute ${minute + 1} charge=${sample()} uAh")
+                log("minute ${minute + 1} charge=${sample()} uAh measured=%.1f mAh raw=%.0f".format(used(), synchronized(this) { sumRaw }))
             }
-            val used = (start - sample()) / 1000.0
-            log("RESULT used %.0f mAh in %d minutes (%.0f mAh per hour), downloaded %.0f MB".format(used, minutes, used * 60 / minutes, downloaded))
+            val counter = (start - sample()) / 1000.0
+            val measured = used()
+            log("RESULT measured %.1f mAh in %d minutes (%.0f mAh per hour; counter says %.0f mAh), downloaded %.0f MB".format(
+                measured, minutes, measured * 60 / minutes, counter, downloaded))
         } finally {
+            running.set(false)
+            meter.join()
             wl.release()
         }
     }
