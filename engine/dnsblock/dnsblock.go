@@ -240,7 +240,7 @@ func reply(head []byte, qtype uint16) []byte {
 	r = append(r, 0xC0, 12) // the name: pointer to the question
 	r = binary.BigEndian.AppendUint16(r, qtype)
 	r = binary.BigEndian.AppendUint16(r, 1)  // class IN
-	r = binary.BigEndian.AppendUint32(r, 60) // TTL: a minute, so allowing a name takes effect soon
+	r = binary.BigEndian.AppendUint32(r, 10) // TTL: 10 s, so allowing a name or turning blocking off takes effect soon
 	r = binary.BigEndian.AppendUint16(r, uint16(len(rdata)))
 	return append(r, rdata...)
 }

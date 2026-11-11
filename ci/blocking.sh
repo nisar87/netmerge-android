@@ -18,7 +18,7 @@ adb logcat -d -s NetMergeBlock | grep -qE "blocking on: [0-9]{4,} names" || { ec
 adb shell am instrument -w -r -e class dev.netmerge.probe.ProbeTest#dnsBlocking -e blocked googleads.g.doubleclick.net,pagead2.googlesyndication.com -e open www.google.com,www.wikipedia.org $P > dns1.txt
 grep "dns=" dns1.txt; grep -q "^OK (" dns1.txt || { echo "blocking did not work"; exit 1; }
 restart --ez blocking false
-sleep 3
+sleep 15 # Android keeps a DNS answer for its lifetime (10 s for a blocked name)
 adb shell am instrument -w -r -e class dev.netmerge.probe.ProbeTest#dnsBlocking -e blocked x -e open googleads.g.doubleclick.net,www.google.com $P > dns2.txt
 grep "dns=" dns2.txt
 # "x" does not exist, so it counts as blocked; the ad site must resolve again
