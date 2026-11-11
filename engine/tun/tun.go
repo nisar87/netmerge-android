@@ -86,7 +86,10 @@ func (e *Engine) Stop() {
 	e.once.Do(func() {
 		close(e.stop)
 		if e.stack != nil {
-			e.stack.Close()
+			// Destroy, not only Close: it also removes the NIC, which stops the reader that waits on the VPN's file
+			// descriptor. A reader left waiting keeps the VPN open after the descriptor is closed (the kernel keeps
+			// the file while a poll waits on it).
+			e.stack.Destroy()
 		}
 		if e.dev != nil {
 			e.dev.Close()
