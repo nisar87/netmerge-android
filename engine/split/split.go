@@ -4,6 +4,7 @@
 package split
 
 import (
+	"math"
 	"sync"
 	"sync/atomic"
 )
@@ -44,7 +45,16 @@ type Splitter struct {
 const (
 	startCap = 1 << 20 // assume 1 MB/s until a network shows what it can do
 	minCap   = 64 << 10
-	forget   = 0.97 // per second: a speed seen once is forgotten in about a minute unless seen again
+	// forget: per second of use, a speed seen once fades (half in about 35 s of traffic) unless seen again. While a
+	// network carries (almost) nothing nothing is forgotten: idle says nothing about its speed, and forgetting then
+	// made every network look the same after a pause.
+	forget  = 0.98
+	idleBps = 32 << 10
+	// slowPart: a network slower than this part of the fastest gets only a trickle of new connections (1 in
+	// trickle), enough to notice when it gets faster. With a full share it only delays downloads: their last pieces
+	// wait for it (seen on the phone with mobile data at about 1 Mbps next to 60 Mbps Wi-Fi).
+	slowPart = 0.15
+	trickle  = 32
 )
 
 // SetNets replaces the list of networks, keeping what was learned about networks that stay.
@@ -92,7 +102,10 @@ func (s *Splitter) Tick(seconds float64) {
 		rx := l.rx.Load()
 		rate := float64(rx-l.lastRx) / seconds
 		l.lastRx = rx
-		l.cap *= forget
+		if rate < idleBps {
+			continue
+		}
+		l.cap *= math.Pow(forget, seconds)
 		if rate > l.cap {
 			l.cap = rate
 		}
@@ -108,13 +121,19 @@ func (s *Splitter) Pick(v6 bool) (n Net, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var best *line
-	total := 0.0
+	total, fastest := 0.0, 0.0
+	for _, l := range s.lines {
+		if ((v6 && l.V6) || (!v6 && l.V4)) && l.cap > fastest {
+			fastest = l.cap
+		}
+	}
 	for _, l := range s.lines {
 		if (v6 && !l.V6) || (!v6 && !l.V4) {
 			continue
 		}
-		l.cur += l.cap
-		total += l.cap
+		w := weight(l.cap, fastest)
+		l.cur += w
+		total += w
 		if best == nil || l.cur > best.cur {
 			best = l
 		}
@@ -125,6 +144,15 @@ func (s *Splitter) Pick(v6 bool) (n Net, ok bool) {
 	best.cur -= total
 	best.conns.Add(1)
 	return best.Net, true
+}
+
+// weight is a network's share of new connections: its learned speed, or a trickle when it is far slower than the
+// fastest network.
+func weight(c, fastest float64) float64 {
+	if c < slowPart*fastest {
+		return fastest / trickle
+	}
+	return c
 }
 
 // Counter returns the byte and connection counters of a network, for the connection that was given to it.
@@ -144,15 +172,20 @@ func (s *Splitter) Counter(name string) (rx, tx, active *atomic.Int64) {
 func (s *Splitter) Stats() []Stat {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	total := 0.0
+	total, fastest := 0.0, 0.0
 	for _, l := range s.lines {
-		total += l.cap
+		if l.cap > fastest {
+			fastest = l.cap
+		}
+	}
+	for _, l := range s.lines {
+		total += weight(l.cap, fastest)
 	}
 	out := make([]Stat, 0, len(s.lines))
 	for _, l := range s.lines {
 		st := Stat{Name: l.Name, Rx: l.rx.Load(), Tx: l.tx.Load(), Active: l.active.Load(), Conns: l.conns.Load(), Cap: l.cap}
 		if total > 0 {
-			st.Share = l.cap / total
+			st.Share = weight(l.cap, fastest) / total
 		}
 		out = append(out, st)
 	}
