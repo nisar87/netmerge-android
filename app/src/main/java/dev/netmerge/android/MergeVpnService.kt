@@ -39,7 +39,7 @@ class MergeVpnService : VpnService() {
         intent?.getStringExtra("include")?.let { Excluded.set(this, it, false) }
         goForeground()
         val gen = ++generation
-        thread(name = "merge-start") { startMerging(gen) }
+        thread(name = "merge-start") { safeStart(gen) }
         return START_STICKY
     }
 
@@ -65,6 +65,16 @@ class MergeVpnService : VpnService() {
             else startForeground(1, n)
         } catch (e: Exception) {
             Log.e(TAG, "ENGINE could not run in the foreground: $e")
+        }
+    }
+
+    private fun safeStart(gen: Int) {
+        try {
+            startMerging(gen)
+        } catch (e: Exception) {
+            Log.e(TAG, "ENGINE start failed", e)
+            event("start failed: $e")
+            failed(gen)
         }
     }
 
@@ -197,7 +207,7 @@ class MergeVpnService : VpnService() {
             SystemClock.sleep(2000)
             if (!stopped && gen == generation) {
                 event("start: trying again")
-                startMerging(gen)
+                safeStart(gen)
             }
         }
     }
