@@ -11,6 +11,7 @@ adb shell dumpsys connectivity | grep -E "NetworkAgentInfo|Transports" | head -2
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 adb shell appops set dev.netmerge.android ACTIVATE_VPN allow
+adb shell pm grant dev.netmerge.android android.permission.POST_NOTIFICATIONS || true
 adb logcat -c
 adb shell am instrument -w -r dev.netmerge.android.test/androidx.test.runner.AndroidJUnitRunner > instrument.txt; cat instrument.txt
 grep -q "^OK (" instrument.txt || { echo "first try failed; networks now:"; adb shell dumpsys connectivity | grep "ni{" | cut -c1-200; sleep 20; adb shell am instrument -w -r dev.netmerge.android.test/androidx.test.runner.AndroidJUnitRunner > instrument.txt; cat instrument.txt; }
