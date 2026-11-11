@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -63,7 +64,7 @@ fun SettingsScreen(live: Live, openApps: () -> Unit) {
                     }
                 }
                 Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     for (l in Settings.limits) {
                         FilterChip(selected = limit == l, onClick = { limit = l; Settings.setLimitMB(ctx, l) },
                             label = { Text(if (l == 0) "None" else if (l < 1000) "$l MB" else "${l / 1000} GB") })
