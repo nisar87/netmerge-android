@@ -76,8 +76,9 @@ class DualNetworks(context: Context, private val onChange: (() -> Unit)? = null)
                     onChange?.invoke()
                 }
             }
-            cm.requestNetwork(request, cb)
+            // registered before asking: Android may answer at once (on another thread) when the network is up
             callbacks[kind] = cb
+            cm.requestNetwork(request, cb)
         }
     }
 
