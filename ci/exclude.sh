@@ -14,7 +14,8 @@ a=$(rx)
 adb shell am instrument -w -r -e class dev.netmerge.probe.ProbeTest#download -e conns 8 -e secs 8 -e size 4000000000 $P | grep -E "download=|FAILURES"
 sleep 3; b=$(rx)
 echo "engine carried $((b - a)) bytes while the probe app was left out"
-[ $((b - a)) -lt 5000000 ] || { echo "the left-out app still went through merging"; exit 1; }
+# other apps may use the network meanwhile; the probe alone downloads 50-500 MB here
+[ $((b - a)) -lt 20000000 ] || { echo "the left-out app still went through merging"; exit 1; }
 restart --es include dev.netmerge.probe
 a=$(rx)
 adb shell am instrument -w -r -e class dev.netmerge.probe.ProbeTest#download -e conns 8 -e secs 8 -e size 4000000000 $P | grep -E "download=|FAILURES"
