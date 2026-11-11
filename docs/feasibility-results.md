@@ -52,7 +52,26 @@ Cost:
   0.3% of a 5000 mAh battery per GB.
 - Temperature: 29.5 to 30.8 C over the whole test (phone on the cable).
 
-## 4. Still open
+## 4. A network drops in the middle of a merged download (2026-11-11, first try)
+
+Job 021: merging on, a 16-connection download running; Wi-Fi (then mobile data) switched off after 10 s and on again
+25 s later.
+
+- Pages opened before and after each drop; merging went on by itself when the network came back.
+- The test download itself was wrong: it asked for 300 MB of a file of about 120 MB, so every piece past the end
+  failed at once, and a failed piece was not fetched again. The errors (131 and 73) and the early end came from the
+  test, not from merging. Found on the emulator, where the engine's own timeline showed mobile data carrying about
+  20 MB/s all through a Wi-Fi drop while the test reported a 24-second stall.
+- The engine kept connections that were on the lost network open until they timed out, so apps waited for them.
+- The phone's log (logcat) keeps only about 50 KB on this phone; the engine's lines were often gone before the test
+  read them, so job 021 showed no engine lines although merging was on (checked in job 022).
+
+Changes after this (branch `dropout-failover`): the engine closes every connection of a network that left at once (the
+app then opens a new one, which goes to the network that works), tries another network after 5 s instead of 10 s; the
+test download fetches failed pieces again and reports its longest stall; the app writes its events and statistics to
+files that tests read with `adb shell run-as`.
+
+## 5. Still open
 
 - A measured battery drain with the cable unplugged (30-60 minutes, merging on vs off).
 - Keeping mobile data up when nothing is downloading: its cost while idle.

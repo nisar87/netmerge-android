@@ -51,7 +51,7 @@ class ProbeTest {
             conns = args.getString("conns")?.toInt() ?: 16,
             secs = args.getString("secs")?.toDouble() ?: 30.0,
         )
-        report("download", "%.1f Mbps, %.0f MB in %.1f s with %d connections, %d errors".format(r.mbps, r.mb, r.seconds, r.conns, r.errors))
+        report("download", "%.1f Mbps, %.0f MB in %.1f s with %d connections, %d errors, longest stall %.1f s".format(r.mbps, r.mb, r.seconds, r.conns, r.errors, r.gap))
         assertTrue("download failed", r.mb > 0)
     }
 }

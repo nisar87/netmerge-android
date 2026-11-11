@@ -44,7 +44,7 @@ func SetNetworks(netsJSON string) error {
 	mu.Lock()
 	defer mu.Unlock()
 	if eng != nil {
-		eng.Split.SetNets(nets)
+		eng.SetNets(nets)
 	}
 	return nil
 }
@@ -67,6 +67,6 @@ func Stats() string {
 	if e == nil {
 		return ""
 	}
-	b, _ := json.Marshal(map[string]any{"nets": e.Split.Stats(), "fails": e.Fails()})
+	b, _ := json.Marshal(map[string]any{"nets": e.Split.Stats(), "fails": e.Fails(), "drops": e.Drops()})
 	return string(b)
 }
