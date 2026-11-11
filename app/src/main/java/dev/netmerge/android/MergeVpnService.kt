@@ -35,6 +35,7 @@ class MergeVpnService : VpnService() {
             Settings.setOnDemand(this, intent.getBooleanExtra("ondemand", false))
         }
         if (intent?.hasExtra("limitmb") == true) Settings.setLimitMB(this, intent.getIntExtra("limitmb", 0))
+        if (intent?.hasExtra("blocking") == true) Blocklists.setOn(this, intent.getBooleanExtra("blocking", true))
         intent?.getStringExtra("exclude")?.let { Excluded.set(this, it, true) } // tests
         intent?.getStringExtra("include")?.let { Excluded.set(this, it, false) }
         goForeground()
@@ -82,6 +83,7 @@ class MergeVpnService : VpnService() {
         val n = DualNetworks(this) { networksChanged() }.also { nets = it; it.start() }
         n.awaitBoth(15_000) // start with what is there; a network that comes later joins by itself
         if (stopped || gen != generation) return // stopped while waiting for the networks
+        runCatching { Blocklists.apply(this) } // the lists already on the phone; fresh ones are fetched below
         val pfd = Builder()
             .setSession("NetMerge")
             .setMtu(mtu)
@@ -89,8 +91,9 @@ class MergeVpnService : VpnService() {
             .addAddress("fd6e:6d65:7267::2", 128)
             .addRoute("0.0.0.0", 0)
             .addRoute("::", 0)
-            .addDnsServer("1.1.1.1")
-            .addDnsServer("8.8.8.8")
+            // the engine's own DNS address: blocked names are answered there, the rest go to a real DNS server
+            .addDnsServer("10.111.0.53")
+            .addDnsServer("fd6e:6d65:7267::53")
             .addDisallowedApplication(packageName)
             .apply {
                 // apps the user left out of merging use the phone's normal network
@@ -126,6 +129,9 @@ class MergeVpnService : VpnService() {
         }
         running = true
         retried = false
+        thread(name = "blocklists") {
+            if (runCatching { Blocklists.refresh(this) }.getOrDefault(false)) runCatching { Blocklists.apply(this) }
+        }
         MergeTileService.update(this)
         Log.i(TAG, "ENGINE started with $json")
         event("started mtu=$mtu $json")
