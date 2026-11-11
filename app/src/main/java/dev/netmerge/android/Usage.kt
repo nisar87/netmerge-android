@@ -50,3 +50,13 @@ object Settings {
     fun setLimitMB(ctx: Context, v: Int) = p(ctx).edit().putInt("mobileLimitMB", v).apply()
     val limits = intArrayOf(0, 500, 1000, 2000, 5000)
 }
+/** The apps left out of merging (package names). */
+object Excluded {
+    private fun p(c: Context) = c.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    fun get(c: Context): Set<String> = p(c).getStringSet("excludedApps", emptySet()) ?: emptySet()
+    fun set(c: Context, pkg: String, on: Boolean) {
+        val now = get(c).toMutableSet()
+        if (on) now += pkg else now -= pkg
+        p(c).edit().putStringSet("excludedApps", now).apply()
+    }
+}

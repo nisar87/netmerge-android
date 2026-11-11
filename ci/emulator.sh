@@ -40,5 +40,9 @@ adb shell am start -n dev.netmerge.android/.MainActivity --ez merge true; sleep 
 adb shell am start -n dev.netmerge.android/.MainActivity; sleep 3; adb shell screencap -p /sdcard/screen-merging.png; adb pull /sdcard/screen-merging.png . || true
 sleep 8
 adb shell am start -n dev.netmerge.android/.MainActivity --ez merge false; sleep 4; adb shell screencap -p /sdcard/screen-off.png; adb pull /sdcard/screen-off.png . || true
+adb shell am start -n dev.netmerge.android/.MainActivity --ez merge true; sleep 3
+adb shell am start -n dev.netmerge.android/.MainActivity --es tab block; sleep 3; adb shell screencap -p /sdcard/screen-block.png; adb pull /sdcard/screen-block.png . || true
+adb shell am start -n dev.netmerge.android/.MainActivity --es tab settings; sleep 3; adb shell screencap -p /sdcard/screen-settings.png; adb pull /sdcard/screen-settings.png . || true
+adb shell am start -n dev.netmerge.android/.MainActivity --es tab home
 # the screenshots in the log (artifacts cannot always be downloaded): between the markers, base64
-for f in screen-merging.png screen-off.png; do [ -f $f ] && { echo "BEGIN-$f"; base64 -w0 $f; echo; echo "END-$f"; }; done
+for f in screen-merging.png screen-off.png screen-block.png screen-settings.png; do [ -f $f ] && { echo "BEGIN-$f"; base64 -w0 $f; echo; echo "END-$f"; }; done
