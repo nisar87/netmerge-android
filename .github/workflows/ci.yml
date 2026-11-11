@@ -85,7 +85,7 @@ jobs:
             grep -q "^OK (" probe1.txt
             grep -q "^OK (" probe2.txt
             grep ENGINE logcat.txt | grep '"nets"' | tail -1 | sed 's/.*ENGINE //' | jq -e '[.nets[] | select(.rx > 100000)] | length >= 2'
-            sh ci/dropout.sh || true
+            sh ci/dropout.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
