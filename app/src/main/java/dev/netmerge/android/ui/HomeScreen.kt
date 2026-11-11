@@ -63,6 +63,16 @@ fun HomeScreen(live: Live, starting: Boolean, onToggle: () -> Unit) {
             },
             style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant,
         )
+        live.problem?.let { msg ->
+            Spacer(Modifier.height(12.dp))
+            Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = scheme.errorContainer)) {
+                Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.ErrorOutline, null, tint = scheme.onErrorContainer)
+                    Spacer(Modifier.width(10.dp))
+                    Text(msg, style = MaterialTheme.typography.bodyMedium, color = scheme.onErrorContainer)
+                }
+            }
+        }
         Spacer(Modifier.height(16.dp))
         Sparkline(live.history, Modifier.fillMaxWidth().height(56.dp))
         Spacer(Modifier.height(16.dp))
@@ -73,8 +83,8 @@ fun HomeScreen(live: Live, starting: Boolean, onToggle: () -> Unit) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             MiniStat(Icons.Rounded.DataUsage, "Mobile data by merging today",
                 mbText(live.mobileToday) + if (live.overLimit) " · limit reached" else "", Modifier.weight(1f))
-            MiniStat(Icons.Rounded.Shield, "Ads & trackers blocked",
-                if (live.blockOn) "%,d".format(live.blocked) else "Off", Modifier.weight(1f))
+            MiniStat(Icons.Rounded.Shield, "Ads & trackers blocked today",
+                if (live.blockOn) "%,d".format(live.blockedToday) else "Off", Modifier.weight(1f))
         }
         Spacer(Modifier.height(24.dp))
     }

@@ -48,23 +48,39 @@ class MergeVpnService : VpnService() {
         return START_STICKY
     }
 
-    /** A merging VPN must run in the foreground (with its notification), or the phone throttles it when the
-     *  screen is off. Seen on a Galaxy S26 Ultra: a merged download dropped from about 85 to 26 Mbps. */
-    private fun goForeground() {
+    /** The notification while merging: what it does right now, a tap opens the app, Stop stops. */
+    private fun notification(text: String): Notification {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel("merge", "Merging", NotificationManager.IMPORTANCE_LOW))
         val open = android.app.PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
             android.app.PendingIntent.FLAG_IMMUTABLE)
         val stop = android.app.PendingIntent.getService(this, 1, Intent(this, MergeVpnService::class.java).setAction(ACTION_STOP),
             android.app.PendingIntent.FLAG_IMMUTABLE)
-        val n = Notification.Builder(this, "merge")
-            .setContentTitle("NetMerge is merging Wi-Fi and mobile data")
-            .setContentText("Tap to see what each network carries")
+        return Notification.Builder(this, "merge")
+            .setContentTitle("NetMerge is merging")
+            .setContentText(text)
             .setSmallIcon(R.drawable.ic_merge)
             .setContentIntent(open)
             .addAction(Notification.Action.Builder(null, "Stop", stop).build())
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setShowWhen(false)
             .build()
+    }
+
+    private var shown = ""
+
+    /** Updates the notification's text when it changed (at most every few seconds; costs nothing otherwise). */
+    private fun showStatus(text: String) {
+        if (text == shown) return
+        shown = text
+        runCatching { getSystemService(NotificationManager::class.java).notify(1, notification(text)) }
+    }
+
+    /** A merging VPN must run in the foreground (with its notification), or the phone throttles it when the
+     *  screen is off. Seen on a Galaxy S26 Ultra: a merged download dropped from about 85 to 26 Mbps. */
+    private fun goForeground() {
+        val n = notification("Starting…")
         try {
             if (Build.VERSION.SDK_INT >= 34) startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED)
             else startForeground(1, n)
@@ -133,6 +149,7 @@ class MergeVpnService : VpnService() {
         }
         running = true
         retried = false
+        problem = null
         thread(name = "blocklists") {
             if (runCatching { Blocklists.refresh(this) }.getOrDefault(false)) runCatching { Blocklists.apply(this) }
         }
@@ -142,6 +159,8 @@ class MergeVpnService : VpnService() {
         thread(name = "merge-stats") {
             var lastRx = -1L
             var lastMobile = 0L
+            var lastBlocked = 0L
+            var tick = 0
             // a stop followed at once by a new start must end this loop: it belongs to the old networks
             while (!stopped && gen == generation) {
                 SystemClock.sleep(2000)
@@ -162,6 +181,21 @@ class MergeVpnService : VpnService() {
                 lastMobile = mobileNow
                 if (n.usable(DualNetworks.Kind.WIFI)) Usage.add(this, used)
                 mobilePolicy(rate, n)
+                val blocked = runCatching { org.json.JSONObject(mobile.Mobile.blockStats()).getLong("blocked") }.getOrDefault(lastBlocked)
+                Usage.addBlocked(this, if (blocked >= lastBlocked) blocked - lastBlocked else blocked)
+                lastBlocked = blocked
+                if (tick++ % 2 == 0) {
+                    val total = all.sumOf { it.getLong("rx") + it.getLong("tx") }.toDouble()
+                    val parts = all.filter { total > 0 }.joinToString(" · ") {
+                        (if (it.getString("name") == "wifi") "Wi-Fi " else "Mobile ") + "${((it.getLong("rx") + it.getLong("tx")) * 100 / total).toInt()}%"
+                    }
+                    val mbps = rate * 8 / 1e6
+                    showStatus(listOfNotNull(
+                        if (mbps >= 0.1) "%.1f Mbps".format(mbps) else "Idle",
+                        parts.ifEmpty { null },
+                        if (Blocklists.on(this)) "${Usage.blockedToday(this)} ads blocked today" else null,
+                    ).joinToString(" · "))
+                }
             }
         }
     }
@@ -215,6 +249,8 @@ class MergeVpnService : VpnService() {
         nets = null
         if (retried || stopped || gen != generation) {
             active = false
+            if (!stopped) problem = "NetMerge could not start. Check that Wi-Fi or mobile data is on, then try again."
+            stopForeground(STOP_FOREGROUND_REMOVE)
             return
         }
         retried = true
@@ -258,6 +294,7 @@ class MergeVpnService : VpnService() {
     }
 
     override fun onRevoke() {
+        problem = "Another VPN app took over, so NetMerge stopped."
         stopMerging()
         super.onRevoke()
     }
@@ -277,5 +314,7 @@ class MergeVpnService : VpnService() {
         private const val BUSY = 1_000_000.0 // bytes per second for 4 s: merging can help, bring mobile data up
         private const val QUIET = 100_000.0 // bytes per second for a minute: nothing to gain, let mobile data go
         @Volatile var running = false
+        /** Why merging stopped by itself, for the screen (null: nothing to say). */
+        @Volatile var problem: String? = null
     }
 }

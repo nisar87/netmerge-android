@@ -41,8 +41,15 @@ adb shell am start -n dev.netmerge.android/.MainActivity; sleep 3; adb shell scr
 sleep 8
 adb shell am start -n dev.netmerge.android/.MainActivity --ez merge false; sleep 4; adb shell screencap -p /sdcard/screen-off.png; adb pull /sdcard/screen-off.png . || true
 adb shell am start -n dev.netmerge.android/.MainActivity --ez merge true; sleep 3
+# the notification while merging
+adb shell cmd statusbar expand-notifications; sleep 2; adb shell screencap -p /sdcard/screen-notification.png; adb pull /sdcard/screen-notification.png . || true
+adb shell cmd statusbar collapse; sleep 1
 adb shell am start -n dev.netmerge.android/.MainActivity --es tab block; sleep 3; adb shell screencap -p /sdcard/screen-block.png; adb pull /sdcard/screen-block.png . || true
 adb shell am start -n dev.netmerge.android/.MainActivity --es tab settings; sleep 3; adb shell screencap -p /sdcard/screen-settings.png; adb pull /sdcard/screen-settings.png . || true
 adb shell am start -n dev.netmerge.android/.MainActivity --es tab home
+adb shell am start -n dev.netmerge.android/.MainActivity --ez merge false; sleep 3
+adb shell am force-stop dev.netmerge.android
+adb shell run-as dev.netmerge.android sh -c 'sed -i "/welcomed/d" shared_prefs/settings.xml' || true
+adb shell am start -n dev.netmerge.android/.MainActivity; sleep 4; adb shell screencap -p /sdcard/screen-welcome.png; adb pull /sdcard/screen-welcome.png . || true
 # the screenshots in the log (artifacts cannot always be downloaded): between the markers, base64
-for f in screen-merging.png screen-off.png screen-block.png screen-settings.png; do [ -f $f ] && { echo "BEGIN-$f"; base64 -w0 $f; echo; echo "END-$f"; }; done
+for f in screen-merging.png screen-off.png screen-block.png screen-settings.png screen-notification.png screen-welcome.png; do [ -f $f ] && { echo "BEGIN-$f"; base64 -w0 $f; echo; echo "END-$f"; }; done
