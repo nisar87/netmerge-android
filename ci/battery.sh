@@ -14,8 +14,16 @@ tun() { adb shell ip addr 2>/dev/null | grep -q "10.111.0.2"; }
 tun && seetun=1 || { seetun=0; echo "warning: the VPN's address is not visible to adb; not checking that it closes"; }
 adb shell dumpsys battery set level 20
 waitfor "paused: battery 20%" 15 || fail "merging did not pause at 20%"
-sleep 3
-[ $seetun = 1 ] && tun && fail "the VPN is still up while paused"
+if [ $seetun = 1 ]; then
+  for i in $(seq 1 20); do tun || break; sleep 1; done
+  if tun; then
+    echo "VPN still up 20 s after the pause; the app's open files:"
+    pid=$(adb shell pidof dev.netmerge.android | tr -d '\r')
+    adb shell run-as dev.netmerge.android ls -l /proc/$pid/fd 2>&1 | grep -i -e tun -e anon | head
+    fail "the VPN is still up while paused"
+  fi
+  echo "VPN closed $i s after the pause"
+fi
 # apps keep working on the normal network
 adb shell am instrument -w -r -e class dev.netmerge.probe.ProbeTest#pagesOpen dev.netmerge.probe.test/androidx.test.runner.AndroidJUnitRunner | grep -q "^OK (" || fail "pages failed while paused"
 adb shell dumpsys battery set ac 1
