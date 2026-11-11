@@ -28,6 +28,7 @@ class BatteryTest {
         val ctx = InstrumentationRegistry.getInstrumentation().context
         val label = args.getString("label") ?: "run"
         val minutes = args.getString("minutes")?.toInt() ?: 25
+        val every = args.getString("every")?.toInt() ?: 5 // a download every this many minutes
         val bm = ctx.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
         val wl = (ctx.getSystemService(Context.POWER_SERVICE) as PowerManager)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "netmerge:batterytest")
@@ -60,7 +61,7 @@ class BatteryTest {
             log("start charge=${start} uAh level=${bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)}% current=${bm.getLongProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)}")
             var downloaded = 0.0
             for (minute in 0 until minutes) {
-                if (minute % 5 == 0) {
+                if (minute % every == 0) {
                     val r = Downloader.run(conns = 16, secs = 40.0)
                     downloaded += r.mb
                     log("minute $minute download %.1f Mbps %.0f MB %d errors".format(r.mbps, r.mb, r.errors))
