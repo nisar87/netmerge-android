@@ -38,9 +38,16 @@ class MergeVpnService : VpnService() {
     private fun goForeground() {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel("merge", "Merging", NotificationManager.IMPORTANCE_LOW))
+        val open = android.app.PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
+            android.app.PendingIntent.FLAG_IMMUTABLE)
+        val stop = android.app.PendingIntent.getService(this, 1, Intent(this, MergeVpnService::class.java).setAction(ACTION_STOP),
+            android.app.PendingIntent.FLAG_IMMUTABLE)
         val n = Notification.Builder(this, "merge")
             .setContentTitle("NetMerge is merging Wi-Fi and mobile data")
+            .setContentText("Tap to see what each network carries")
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setContentIntent(open)
+            .addAction(Notification.Action.Builder(null, "Stop", stop).build())
             .setOngoing(true)
             .build()
         try {
@@ -78,6 +85,7 @@ class MergeVpnService : VpnService() {
             return
         }
         running = true
+        MergeTileService.update(this)
         Log.i(TAG, "ENGINE started with $json")
         event("started mtu=$mtu $json")
         thread(name = "merge-stats") {
@@ -107,6 +115,7 @@ class MergeVpnService : VpnService() {
         stopped = true
         if (running) runCatching { mobile.Mobile.stop() }
         running = false
+        MergeTileService.update(this)
         nets?.stop()
         nets = null
         runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
