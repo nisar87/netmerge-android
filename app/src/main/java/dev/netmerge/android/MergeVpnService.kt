@@ -80,6 +80,10 @@ class MergeVpnService : VpnService() {
             .addDnsServer("1.1.1.1")
             .addDnsServer("8.8.8.8")
             .addDisallowedApplication(packageName)
+            .apply {
+                // apps the user left out of merging use the phone's normal network
+                for (pkg in Excluded.get(this@MergeVpnService)) runCatching { addDisallowedApplication(pkg) }
+            }
             .setUnderlyingNetworks(n.all().toTypedArray())
             .establish()
         if (pfd == null) {

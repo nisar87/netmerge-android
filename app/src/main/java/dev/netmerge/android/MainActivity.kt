@@ -101,7 +101,11 @@ class MainActivity : Activity() {
             val all = Settings.limits
             Settings.setLimitMB(this, all[(all.indexOf(Settings.limitMB(this)) + 1) % all.size])
         }
-        settingsRows = listOf(onDemandRow, limitRow)
+        val appsRow = setting({
+            val n = Excluded.get(this).size
+            "Apps left out of merging: " + (if (n == 0) "none" else "$n")
+        }) { startActivity(Intent(this, AppsActivity::class.java)) }
+        settingsRows = listOf(onDemandRow, limitRow, appsRow)
         val check = Button(this).apply {
             text = "Check both networks"; isAllCaps = false
             setTextColor(Color.rgb(30, 110, 230)); background = null; setPadding(0, dp(8), dp(8), dp(8))
@@ -159,6 +163,8 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        if (::settingsRows.isInitialized) settingsRows.last().text = "Apps left out of merging: " +
+            Excluded.get(this).size.let { if (it == 0) "none" else "$it" }
         last.clear()
         ui.post(tick)
     }

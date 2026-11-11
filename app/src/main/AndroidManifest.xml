@@ -10,6 +10,14 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- the list of apps that can be left out of merging (launcher apps only) -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <application
         android:label="NetMerge"
         android:allowBackup="false"
@@ -25,6 +33,7 @@
             </intent-filter>
         </activity>
 
+        <activity android:name=".AppsActivity" android:exported="false" />
         <service
             android:name=".SpikeVpnService"
             android:exported="false"
