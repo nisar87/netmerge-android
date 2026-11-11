@@ -122,7 +122,9 @@ between; the battery current added up every second. Build with VPN packet size 1
 
 ## 7. Still open
 
-- A measured battery drain with the cable unplugged (30-60 minutes, merging on vs off).
-- Keeping mobile data up when nothing is downloading: its cost while idle.
-- Samsung's background limits over hours.
-- Processor use: the user-space stack is the main cost; to be tuned before release.
+- Battery round 2 (running): merged with mobile data always up against mobile data on demand, with the splitter fixes
+  and packet size 9000.
+- Speed on the phone with the splitter fixes (running).
+- The 3-hour run (running): leaks (memory, connections, goroutines) and Samsung's limits over hours.
+- Untested on a real phone: a Wi-Fi without internet (left out of merging since it is not validated), apps left out
+  of merging (checked on the emulator), always-on VPN after a restart of the phone.
