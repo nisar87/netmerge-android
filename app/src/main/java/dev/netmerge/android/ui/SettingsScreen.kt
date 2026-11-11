@@ -73,6 +73,14 @@ fun SettingsScreen(live: Live, openApps: () -> Unit) {
             }
         }
 
+        Section("Start")
+        Group {
+            NavRow(Icons.Rounded.PowerSettingsNew, "Start automatically",
+                "Opens Android's VPN settings: tap the gear next to NetMerge and turn on \"Always-on VPN\". NetMerge then starts with the phone.") {
+                runCatching { ctx.startActivity(Intent(android.provider.Settings.ACTION_VPN_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            }
+        }
+
         Section("Apps")
         Group {
             NavRow(Icons.Rounded.Apps, "Apps left out of merging",

@@ -34,6 +34,18 @@ object Usage {
         pending = 0
     }
 
+    /** Ads and trackers blocked today (kept on the phone). */
+    @Synchronized
+    fun addBlocked(ctx: Context, n: Long) {
+        if (n <= 0) return
+        val p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val key = "blocked-" + today()
+        p.edit().putLong(key, p.getLong(key, 0) + n).apply()
+    }
+
+    fun blockedToday(ctx: Context): Long =
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong("blocked-" + today(), 0)
+
     /** Bytes of mobile data merging used today. */
     @Synchronized
     fun mobileToday(ctx: Context): Long =

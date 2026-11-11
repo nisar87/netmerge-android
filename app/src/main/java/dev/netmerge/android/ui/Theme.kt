@@ -33,7 +33,7 @@ private val Light = lightColorScheme(
     surfaceContainer = Color.White, surfaceContainerHigh = Color(0xFFEFF2F6),
     surfaceContainerLow = Color(0xFFFFFFFF), surfaceContainerHighest = Color(0xFFE6EAF0),
     outline = Color(0xFFC3CAD4), outlineVariant = Color(0xFFDDE2E9),
-    error = Brand.Red,
+    error = Brand.Red, errorContainer = Color(0xFFFDE3E0), onErrorContainer = Color(0xFF5C120B),
 )
 
 private val Dark = darkColorScheme(
@@ -48,7 +48,7 @@ private val Dark = darkColorScheme(
     surfaceContainer = Color(0xFF171B22), surfaceContainerHigh = Color(0xFF1E232C),
     surfaceContainerLow = Color(0xFF13171D), surfaceContainerHighest = Color(0xFF262C36),
     outline = Color(0xFF3A414D), outlineVariant = Color(0xFF2A303A),
-    error = Color(0xFFFF8A7E),
+    error = Color(0xFFFF8A7E), errorContainer = Color(0xFF4A1A15), onErrorContainer = Color(0xFFFFDAD5),
 )
 
 private val Type = Typography().let { t ->

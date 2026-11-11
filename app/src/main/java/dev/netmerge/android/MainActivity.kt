@@ -117,6 +117,16 @@ private fun App(pending: SnapshotStateList<Intent>, tabRequest: MutableState<Str
         when (tabRequest.value) { "home" -> tab = Tab.Home; "block" -> tab = Tab.Block; "settings" -> tab = Tab.Settings }
         tabRequest.value = null
     }
+    // the first start shows a short welcome (tests skip it: they start with an extra)
+    val prefs = remember { ctx.getSharedPreferences("settings", android.content.Context.MODE_PRIVATE) }
+    var welcomed by remember { mutableStateOf(prefs.getBoolean("welcomed", false)) }
+    if (!welcomed && pending.isEmpty() && tabRequest.value == null) {
+        Surface(Modifier.fillMaxSize().safeDrawingPadding(), color = MaterialTheme.colorScheme.background) {
+            WelcomeScreen { prefs.edit().putBoolean("welcomed", true).apply(); welcomed = true }
+        }
+        return
+    }
+    if (!welcomed) { prefs.edit().putBoolean("welcomed", true).apply(); welcomed = true }
     BackHandler(enabled = appsOpen) { appsOpen = false }
     Scaffold(
         bottomBar = {
