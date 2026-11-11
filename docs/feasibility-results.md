@@ -58,9 +58,10 @@ Job 021: merging on, a 16-connection download running; Wi-Fi (then mobile data) 
 25 s later.
 
 - Pages opened before and after each drop; merging went on by itself when the network came back.
-- The test download itself was too simple: a piece that failed was not fetched again, so the download ran out of
-  pieces early (Wi-Fi drop: 37 MB in 10.1 s, 131 errors; mobile drop: 148 MB in 43.6 s, 73 errors). A real download
-  manager fetches a failed piece again, so these numbers say little about what a user sees.
+- The test download itself was wrong: it asked for 300 MB of a file of about 120 MB, so every piece past the end
+  failed at once, and a failed piece was not fetched again. The errors (131 and 73) and the early end came from the
+  test, not from merging. Found on the emulator, where the engine's own timeline showed mobile data carrying about
+  20 MB/s all through a Wi-Fi drop while the test reported a 24-second stall.
 - The engine kept connections that were on the lost network open until they timed out, so apps waited for them.
 - The phone's log (logcat) keeps only about 50 KB on this phone; the engine's lines were often gone before the test
   read them, so job 021 showed no engine lines although merging was on (checked in job 022).

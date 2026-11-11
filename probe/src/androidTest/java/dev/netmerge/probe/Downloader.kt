@@ -15,6 +15,10 @@ object Downloader {
 
     fun run(url: String = URL, size: Long = 140_000_000L, conns: Int = 16, secs: Double = 30.0): Result {
         val piece = 2L shl 20
+        // size may be larger than the file: the download then goes round the file again (pieces never cross its end;
+        // asking past the end would fail at once and look like a network error)
+        val fileLen = fileLength(url)
+        val lapLen = (fileLen + piece - 1) / piece * piece
         val next = AtomicLong(0)
         val got = AtomicLong(0)
         val errors = AtomicLong(0)
@@ -29,13 +33,15 @@ object Downloader {
                 while (SystemClock.elapsedRealtime() < deadline) {
                     val start = retry.poll() ?: next.getAndAdd(piece)
                     if (start >= size) break
-                    val end = (start / piece + 1) * piece
+                    val pieceV = start / piece * piece // where this piece starts, counted in the whole download
+                    val pieceF = pieceV % lapLen // ... and in the file
+                    val endF = minOf(pieceF + piece, fileLen)
                     var at = start
                     try {
                         val c = URL(url).openConnection() as HttpURLConnection
                         c.connectTimeout = 10_000
                         c.readTimeout = 10_000
-                        c.setRequestProperty("Range", "bytes=$at-${minOf(end, size) - 1}")
+                        c.setRequestProperty("Range", "bytes=${pieceF + (at - pieceV)}-${endF - 1}")
                         c.inputStream.use { inp ->
                             while (true) {
                                 val n = inp.read(buf)
@@ -51,7 +57,7 @@ object Downloader {
                         c.disconnect()
                     } catch (e: Exception) {
                         errors.incrementAndGet()
-                        if (at < minOf(end, size)) {
+                        if (pieceF + (at - pieceV) < endF) {
                             retry.add(at) // the rest of this piece is fetched again
                             SystemClock.sleep(300)
                         }
@@ -63,5 +69,23 @@ object Downloader {
         val s = (SystemClock.elapsedRealtime() - t0) / 1000.0
         val tail = SystemClock.elapsedRealtime() - lastByte.get()
         return Result(got.get() * 8 / s / 1e6, got.get() / 1e6, s, conns, errors.get(), maxOf(gap.get(), tail) / 1000.0)
+    }
+
+    /** The file's length (a HEAD request); the test cannot go on without it. */
+    private fun fileLength(url: String): Long {
+        repeat(3) {
+            try {
+                val c = URL(url).openConnection() as HttpURLConnection
+                c.requestMethod = "HEAD"
+                c.connectTimeout = 10_000
+                c.readTimeout = 10_000
+                val n = c.contentLengthLong
+                c.disconnect()
+                if (n > 0) return n
+            } catch (e: Exception) {
+                SystemClock.sleep(1000)
+            }
+        }
+        error("could not get the length of $url")
     }
 }
