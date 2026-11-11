@@ -53,3 +53,12 @@ adb shell run-as dev.netmerge.android rm -f shared_prefs/settings.xml || true
 adb shell am start -n dev.netmerge.android/.MainActivity; sleep 4; adb shell screencap -p /sdcard/screen-welcome.png; adb pull /sdcard/screen-welcome.png . || true
 # the screenshots in the log (artifacts cannot always be downloaded): between the markers, base64
 for f in screen-merging.png screen-off.png screen-block.png screen-settings.png screen-notification.png screen-welcome.png; do [ -f $f ] && { echo "BEGIN-$f"; base64 -w0 $f; echo; echo "END-$f"; }; done
+
+# the shrunk build for real phones: installs over the debug build, starts, and pages open through it
+adb install -r app/build/outputs/apk/release/app-release.apk || { echo "the release build did not install"; exit 1; }
+adb shell appops set dev.netmerge.android ACTIVATE_VPN allow
+adb shell am start -S -n dev.netmerge.android/.MainActivity --ez merge true; sleep 15
+adb shell am instrument -w -r -e class dev.netmerge.probe.ProbeTest#pagesOpen dev.netmerge.probe.test/androidx.test.runner.AndroidJUnitRunner > release.txt; cat release.txt | tail -3
+adb shell dumpsys connectivity | grep -c "VPN CONNECTED" || true
+grep -q "^OK (" release.txt || { echo "pages failed through the release build"; exit 1; }
+echo "release build: OK"

@@ -28,6 +28,18 @@ android {
         }
     }
 
+    buildTypes {
+        // The build for real phones: shrunk (about a tenth of the debug build, which carries every Material icon
+        // and all of Compose unshrunk; a 43 MB debug build failed to install on the test phone) and signed with the
+        // test key until there is a release key.
+        getByName("release") {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
