@@ -102,3 +102,19 @@ func TestSetNetsKeepsLearning(t *testing.T) {
 		}
 	}
 }
+
+// A network that joins next to a fast, busy one gets a fair share of new connections at first.
+func TestJoiningNetworkGetsAFairStart(t *testing.T) {
+	var s Splitter
+	s.SetNets([]Net{{Name: "wifi", V4: true}})
+	wrx, _, _ := s.Counter("wifi")
+	for i := 0; i < 10; i++ {
+		wrx.Add(12_000_000)
+		s.Tick(1)
+	}
+	s.SetNets([]Net{{Name: "wifi", V4: true}, {Name: "mobile", V4: true}})
+	got := picks(&s, 100, false)
+	if got["mobile"] < 40 {
+		t.Fatalf("mobile got only %d of 100 new connections: %v", got["mobile"], got)
+	}
+}
