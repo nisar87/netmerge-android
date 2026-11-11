@@ -25,7 +25,36 @@ themselves (single runs vary). The end of a split download is slowed by mobile c
 (the "tail" known from NetMerge); a system-wide merge of many separate connections does not have that effect.
 Mobile data used by the two rounds: about 200 MB.
 
-## 3. Next: the cost
+## 3. Through the engine: every app's traffic merged (2026-11-11)
 
-Engine inside the app (all of the phone's traffic through the VPN and split over both networks): speed through the
-engine against the app-level numbers above, battery drain over 30-60 minutes merged against not merged, heat.
+The engine (Go: gVisor stack via tun2socks, NetMerge-style split, each connection bound to Wi-Fi or mobile with
+`android_setsocknetwork`) runs behind the app's VPN. A separate "probe" app plays an ordinary app: plain connections,
+16 at a time, the same 140 MB file. Merging off = the phone's normal Wi-Fi.
+
+| Round | Merging off | Merging on | Gain |
+| --- | --- | --- | --- |
+| 1 | 61.4 Mbps | 90.0 Mbps | +47% |
+| 2 | 63.9 Mbps | 83.5 Mbps | +31% |
+| 3 | 59.7 Mbps | 82.1 Mbps | +38% |
+| Average | 61.7 | 85.2 | **+38%** |
+
+- Mobile data carried about 25% of each merged download (35-38 MB of 140 MB); the engine learned Wi-Fi at about
+  80-93 Mbps and mobile at about 26-29 Mbps and gave new connections 75% / 25%.
+- No failed connections, no download errors; pages open (Google, gstatic) through the engine; IPv6 goes to mobile only.
+- The engine is ready about 1 s after "start".
+
+Cost:
+
+- Processor: about 7.5 s of processor time per merged 140 MB download (about 50 s per GB), most of a core while
+  downloading at full speed. Idle (merging on, nothing happening): 0.13 s per minute.
+- Android's battery estimate (phone told to count as unplugged; model-based, not a measured drain), two 140 MB
+  downloads: about 2.8 mAh not merged, about 4.0 mAh merged - roughly 10 against 14 mAh per GB, i.e. 0.2% against
+  0.3% of a 5000 mAh battery per GB.
+- Temperature: 29.5 to 30.8 C over the whole test (phone on the cable).
+
+## 4. Still open
+
+- A measured battery drain with the cable unplugged (30-60 minutes, merging on vs off).
+- Keeping mobile data up when nothing is downloading: its cost while idle.
+- Samsung's background limits over hours; behaviour when Wi-Fi or mobile drops in the middle of downloads.
+- Processor use: the user-space stack is the main cost; to be tuned before release.
