@@ -37,6 +37,8 @@ android {
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("debug")
+            // tests on the phone read the app's own files ("adb shell run-as"); off for a real release
+            isDebuggable = true
         }
     }
 

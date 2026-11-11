@@ -57,7 +57,10 @@ for f in screen-merging.png screen-off.png screen-block.png screen-settings.png 
 # the shrunk build for real phones: installs over the debug build, starts, and pages open through it
 adb install -r app/build/outputs/apk/release/app-release.apk || { echo "the release build did not install"; exit 1; }
 adb shell appops set dev.netmerge.android ACTIVATE_VPN allow
-adb shell am start -S -n dev.netmerge.android/.MainActivity --ez merge true; sleep 15
+adb shell run-as dev.netmerge.android rm -f files/events.log
+adb shell am start -S -n dev.netmerge.android/.MainActivity --ez merge true
+for i in $(seq 1 40); do adb shell run-as dev.netmerge.android cat files/events.log 2>/dev/null | grep -q started && break; sleep 1; done
+adb shell run-as dev.netmerge.android cat files/events.log | grep -m1 started | cut -c1-160
 adb shell am instrument -w -r -e class dev.netmerge.probe.ProbeTest#pagesOpen dev.netmerge.probe.test/androidx.test.runner.AndroidJUnitRunner > release.txt; cat release.txt | tail -3
 adb shell dumpsys connectivity | grep -c "VPN CONNECTED" || true
 grep -q "^OK (" release.txt || { echo "pages failed through the release build"; exit 1; }
