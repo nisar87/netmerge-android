@@ -11,6 +11,7 @@ adb shell dumpsys connectivity | grep -E "NetworkAgentInfo|Transports" | head -2
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 adb shell appops set dev.netmerge.android ACTIVATE_VPN allow
+adb shell pm grant dev.netmerge.android android.permission.POST_NOTIFICATIONS || true
 adb logcat -c
 adb shell am instrument -w -r dev.netmerge.android.test/androidx.test.runner.AndroidJUnitRunner > instrument.txt; cat instrument.txt
 grep -q "^OK (" instrument.txt || { echo "first try failed; networks now:"; adb shell dumpsys connectivity | grep "ni{" | cut -c1-200; sleep 20; adb shell am instrument -w -r dev.netmerge.android.test/androidx.test.runner.AndroidJUnitRunner > instrument.txt; cat instrument.txt; }
@@ -30,5 +31,11 @@ grep -q "^OK (" probe1.txt || exit 1
 grep -q "^OK (" probe2.txt || exit 1
 grep ENGINE logcat.txt | grep '"nets"' | tail -1 | sed 's/.*ENGINE //' | jq -e '[.nets[] | select(.rx > 100000)] | length >= 2' || exit 1
 sh ci/dropout.sh || exit 1
-adb shell am start -n dev.netmerge.android/.MainActivity; sleep 4; adb shell screencap -p /sdcard/screen-merging.png; adb pull /sdcard/screen-merging.png . || true
+sh ci/ondemand.sh || exit 1
+adb shell am start -n dev.netmerge.android/.MainActivity --ez merge true; sleep 4
+(adb shell am instrument -w -r -e class dev.netmerge.probe.ProbeTest#download -e conns 8 -e secs 12 -e size 4000000000 dev.netmerge.probe.test/androidx.test.runner.AndroidJUnitRunner > /dev/null &) ; sleep 6
+adb shell am start -n dev.netmerge.android/.MainActivity; sleep 3; adb shell screencap -p /sdcard/screen-merging.png; adb pull /sdcard/screen-merging.png . || true
+sleep 8
 adb shell am start -n dev.netmerge.android/.MainActivity --ez merge false; sleep 4; adb shell screencap -p /sdcard/screen-off.png; adb pull /sdcard/screen-off.png . || true
+# the screenshots in the log (artifacts cannot always be downloaded): between the markers, base64
+for f in screen-merging.png screen-off.png; do [ -f $f ] && { echo "BEGIN-$f"; base64 -w0 $f; echo; echo "END-$f"; }; done

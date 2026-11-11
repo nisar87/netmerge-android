@@ -18,16 +18,21 @@ import kotlin.concurrent.thread
 class MergeVpnService : VpnService() {
     private var nets: DualNetworks? = null
     @Volatile private var stopped = false
+    @Volatile private var active = false // starting or running
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             stopMerging()
-            stopSelf()
+            stopSelf(startId) // not stopSelf(): a start sent right after this stop must still run
             return START_NOT_STICKY
         }
-        if (running) return START_STICKY
+        if (active) return START_STICKY // already starting or running
+        active = true
         stopped = false
         mtu = intent?.getIntExtra("mtu", DEFAULT_MTU)?.takeIf { it in 1280..65535 } ?: DEFAULT_MTU
+        if (intent?.hasExtra("ondemand") == true) {
+            getSharedPreferences("settings", MODE_PRIVATE).edit().putBoolean("mobileOnDemand", intent.getBooleanExtra("ondemand", false)).apply()
+        }
         goForeground()
         thread(name = "merge-start") { startMerging() }
         return START_STICKY
@@ -61,6 +66,7 @@ class MergeVpnService : VpnService() {
     private fun startMerging() {
         val n = DualNetworks(this) { networksChanged() }.also { nets = it; it.start() }
         n.awaitBoth(15_000) // start with what is there; a network that comes later joins by itself
+        if (stopped) return // stopped while waiting for the networks
         val pfd = Builder()
             .setSession("NetMerge")
             .setMtu(mtu)
@@ -88,16 +94,42 @@ class MergeVpnService : VpnService() {
         MergeTileService.update(this)
         Log.i(TAG, "ENGINE started with $json")
         event("started mtu=$mtu $json")
+        onDemand = getSharedPreferences("settings", MODE_PRIVATE).getBoolean("mobileOnDemand", false)
         thread(name = "merge-stats") {
+            var lastRx = -1L
             while (!stopped) {
                 SystemClock.sleep(2000)
                 val s = mobile.Mobile.stats()
-                if (s.isNotEmpty()) {
-                    Log.i(TAG, "ENGINE $s")
-                    runCatching { java.io.File(filesDir, "engine.json").writeText(s) }
-                    event("stats $s") // a timeline for tests: what each network carried, every 2 s
-                }
+                if (s.isEmpty()) continue
+                Log.i(TAG, "ENGINE $s")
+                runCatching { java.io.File(filesDir, "engine.json").writeText(s) }
+                event("stats $s") // a timeline for tests: what each network carried, every 2 s
+                val rx = runCatching {
+                    val a = org.json.JSONObject(s).getJSONArray("nets")
+                    (0 until a.length()).sumOf { a.getJSONObject(it).getLong("rx") }
+                }.getOrDefault(lastRx)
+                val rate = if (lastRx in 0..rx) (rx - lastRx) / 2.0 else 0.0
+                lastRx = rx
+                if (onDemand) mobileOnDemand(rate, n)
             }
+        }
+    }
+
+    private var busyFor = 0
+    private var quietFor = 0
+
+    /**
+     * Mobile data only when it helps: kept up while there is a lot to download, let go after a minute of little
+     * traffic (Android then keeps only Wi-Fi, which saves battery). Without Wi-Fi, mobile data is always kept.
+     */
+    private fun mobileOnDemand(bytesPerSecond: Double, n: DualNetworks) {
+        val wifi = n.network(DualNetworks.Kind.WIFI) != null
+        val held = n.held(DualNetworks.Kind.MOBILE)
+        if (bytesPerSecond > BUSY) { busyFor++; quietFor = 0 } else if (bytesPerSecond < QUIET) { quietFor++; busyFor = 0 } else { busyFor = 0; quietFor = 0 }
+        when {
+            !wifi && !held -> { n.hold(DualNetworks.Kind.MOBILE, true); event("mobile held: no Wi-Fi") }
+            wifi && !held && busyFor >= 2 -> { n.hold(DualNetworks.Kind.MOBILE, true); event("mobile held: busy %.0f KB/s".format(bytesPerSecond / 1024)) }
+            wifi && held && quietFor >= 30 -> { n.hold(DualNetworks.Kind.MOBILE, false); quietFor = 0; event("mobile released: quiet for a minute") }
         }
     }
 
@@ -113,6 +145,7 @@ class MergeVpnService : VpnService() {
 
     private fun stopMerging() {
         stopped = true
+        active = false
         if (running) runCatching { mobile.Mobile.stop() }
         running = false
         MergeTileService.update(this)
@@ -147,8 +180,14 @@ class MergeVpnService : VpnService() {
         const val ACTION_STOP = "dev.netmerge.android.MERGE_STOP"
         /** The VPN's packet size. Bigger packets mean fewer of them for the engine's stack to handle per GB (the
          *  networks themselves still use their own size). Tests can pass "mtu" to compare. */
-        const val DEFAULT_MTU = 1500
+        const val DEFAULT_MTU = 9000 // phone: about 44 s of processor per GB against 63 s at 1500, same speed
         @Volatile var mtu = DEFAULT_MTU
+        /** Mobile data only while there is a lot to download (see mobileOnDemand). Off by default: connections an
+         *  app already opened on Wi-Fi stay there (apps reuse them), so a download that started while mobile data
+         *  was let go gains less. Worth it only if keeping mobile data up costs real battery (being measured). */
+        @Volatile var onDemand = false
+        private const val BUSY = 1_000_000.0 // bytes per second for 4 s: merging can help, bring mobile data up
+        private const val QUIET = 100_000.0 // bytes per second for a minute: nothing to gain, let mobile data go
         @Volatile var running = false
     }
 }

@@ -56,13 +56,27 @@ func (s *Splitter) SetNets(nets []Net) {
 		old[l.Name] = l
 	}
 	var next []*line
+	known, sum := 0, 0.0
+	for _, n := range nets {
+		if l, ok := old[n.Name]; ok {
+			known++
+			sum += l.cap
+		}
+	}
 	for _, n := range nets {
 		if l, ok := old[n.Name]; ok {
 			l.Net = n
 			next = append(next, l)
 			continue
 		}
-		next = append(next, &line{Net: n, cap: startCap})
+		// A network that joins while others are already busy starts as fast as their average: otherwise it would
+		// get so few connections next to a fast network that it never shows what it can do. If it is slower, its
+		// learned speed falls to what it really carries within about a minute.
+		c := float64(startCap)
+		if known > 0 && sum/float64(known) > c {
+			c = sum / float64(known)
+		}
+		next = append(next, &line{Net: n, cap: c})
 	}
 	s.lines = next
 }

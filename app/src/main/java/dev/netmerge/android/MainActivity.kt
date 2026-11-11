@@ -40,6 +40,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        requestWindowFeature(android.view.Window.FEATURE_NO_TITLE) // the screen has its own title
         if (Build.VERSION.SDK_INT >= 33) requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), 3)
         val dark = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
             android.content.res.Configuration.UI_MODE_NIGHT_YES
@@ -81,6 +82,7 @@ class MainActivity : Activity() {
         diag = text(13f, muted)
         val check = Button(this).apply {
             text = "Check both networks"; isAllCaps = false
+            setTextColor(Color.rgb(30, 110, 230)); background = null; setPadding(0, dp(8), dp(8), dp(8))
             setOnClickListener { runCheck() }
         }
         val note = text(13f, muted).apply {
@@ -101,8 +103,15 @@ class MainActivity : Activity() {
             addView(check, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(20); gravity = Gravity.START })
             addView(diag)
         }
-        setContentView(ScrollView(this).apply { setBackgroundColor(bg); addView(col) })
-        handleTestIntent(intent)
+        setContentView(ScrollView(this).apply {
+            setBackgroundColor(bg)
+            // keep the page at its top: otherwise the button takes the focus and the page scrolls past the title
+            descendantFocusability = android.view.ViewGroup.FOCUS_BEFORE_DESCENDANTS
+            isFocusableInTouchMode = true
+            addView(col)
+        })
+        // not when Android recreates the screen (it would replay an old start/stop)
+        if (savedInstanceState == null) handleTestIntent(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -235,6 +244,7 @@ class MainActivity : Activity() {
         if (requestCode == 2 && resultCode == RESULT_OK && pendingMerge) {
             pendingMerge = false
             val i = Intent(this, MergeVpnService::class.java).putExtra("mtu", intent.getIntExtra("mtu", MergeVpnService.DEFAULT_MTU))
+            if (intent.hasExtra("ondemand")) i.putExtra("ondemand", intent.getBooleanExtra("ondemand", true))
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
         }
     }
