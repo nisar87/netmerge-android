@@ -78,11 +78,15 @@ class MergeVpnService : VpnService() {
         }
         running = true
         Log.i(TAG, "ENGINE started with $json")
+        event("started $json")
         thread(name = "merge-stats") {
             while (!stopped) {
                 SystemClock.sleep(2000)
                 val s = mobile.Mobile.stats()
-                if (s.isNotEmpty()) Log.i(TAG, "ENGINE $s")
+                if (s.isNotEmpty()) {
+                    Log.i(TAG, "ENGINE $s")
+                    runCatching { java.io.File(filesDir, "engine.json").writeText(s) }
+                }
             }
         }
     }
@@ -94,6 +98,7 @@ class MergeVpnService : VpnService() {
         runCatching { mobile.Mobile.setNetworks(json) }
         runCatching { setUnderlyingNetworks(n.all().toTypedArray()) }
         Log.i(TAG, "ENGINE networks now $json")
+        event("networks $json")
     }
 
     private fun stopMerging() {
@@ -104,6 +109,17 @@ class MergeVpnService : VpnService() {
         nets = null
         runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
         Log.i(TAG, "ENGINE stopped")
+        event("stopped")
+    }
+
+    /** Events also go to a file: the phone's log keeps only a little (seen on a Galaxy S26 Ultra: lines were gone
+     *  within seconds), so tests read files/events.log and files/engine.json with "adb shell run-as". */
+    private fun event(what: String) {
+        runCatching {
+            val f = java.io.File(filesDir, "events.log")
+            if (f.length() > 200_000) f.delete()
+            f.appendText("${System.currentTimeMillis()} $what\n")
+        }
     }
 
     override fun onDestroy() {
