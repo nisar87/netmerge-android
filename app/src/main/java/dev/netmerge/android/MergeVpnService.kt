@@ -217,7 +217,7 @@ class MergeVpnService : VpnService() {
         generation++
         stopped = true
         active = false
-        if (running) runCatching { mobile.Mobile.stop() }
+        runCatching { mobile.Mobile.stop() } // always: an engine of a start that had not finished must not be left running
         running = false
         MergeTileService.update(this)
         nets?.stop()
