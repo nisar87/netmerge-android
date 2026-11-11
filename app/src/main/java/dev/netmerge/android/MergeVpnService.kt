@@ -119,6 +119,11 @@ class MergeVpnService : VpnService() {
                 return
             }
         }
+        if (stopped || gen != generation) {
+            // stopped while starting: do not leave this engine running
+            runCatching { mobile.Mobile.stop() }
+            return
+        }
         running = true
         retried = false
         MergeTileService.update(this)
