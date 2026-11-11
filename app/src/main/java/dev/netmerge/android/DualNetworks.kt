@@ -29,6 +29,7 @@ class DualNetworks(context: Context, private val onChange: (() -> Unit)? = null)
     private val cm = context.getSystemService(ConnectivityManager::class.java)
     private val networks = ConcurrentHashMap<Kind, Network>()
     private val callbacks = ConcurrentHashMap<Kind, ConnectivityManager.NetworkCallback>()
+    private val validated = ConcurrentHashMap<Kind, Boolean>() // Android checked that it reaches the internet
 
     fun start() {
         for (kind in Kind.values()) hold(kind, true)
@@ -64,6 +65,15 @@ class DualNetworks(context: Context, private val onChange: (() -> Unit)? = null)
                     onChange?.invoke()
                 }
 
+                override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                    if (callbacks[kind] !== this) return // released meanwhile
+                    val ok = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                    if (networks[kind] == network && validated.put(kind, ok) != ok) {
+                        Log.i(TAG, "$kind ${if (ok) "has internet" else "has no internet (not validated)"}")
+                        onChange?.invoke()
+                    }
+                }
+
                 override fun onLinkPropertiesChanged(network: Network, lp: LinkProperties) {
                     if (callbacks[kind] !== this) return // released meanwhile
                     if (networks[kind] == network) onChange?.invoke()
@@ -72,6 +82,7 @@ class DualNetworks(context: Context, private val onChange: (() -> Unit)? = null)
                 override fun onLost(network: Network) {
                     if (callbacks[kind] !== this) return // released meanwhile
                     networks.remove(kind, network)
+                    validated.remove(kind)
                     Log.i(TAG, "$kind lost")
                     onChange?.invoke()
                 }
@@ -108,13 +119,24 @@ class DualNetworks(context: Context, private val onChange: (() -> Unit)? = null)
     }
 
     /** The networks for the engine: name, Android handle, and whether each reaches IPv4 / IPv6 addresses. */
-    fun engineJson(): String = Kind.values().mapNotNull { kind ->
+    fun engineJson(): String = Kind.values().filter { usable(it) }.mapNotNull { kind ->
         val n = networks[kind] ?: return@mapNotNull null
         val addrs = cm.getLinkProperties(n)?.linkAddresses?.map { it.address } ?: emptyList()
         val v4 = addrs.any { it is java.net.Inet4Address }
         val v6 = addrs.any { it is java.net.Inet6Address && !it.isLinkLocalAddress && !it.isSiteLocalAddress && (it.address[0].toInt() and 0xfe) != 0xfc }
         """{"name":"${kind.name.lowercase()}","handle":${n.networkHandle},"v4":$v4,"v6":$v6}"""
     }.joinToString(",", "[", "]")
+
+    /**
+     * Whether merging should send connections to this network: it must reach the internet (Android validated it; a
+     * hotel Wi-Fi waiting for its sign-in page or a router without internet does not). When no network is validated
+     * (yet), all are used, so the phone is never left without a way out.
+     */
+    fun usable(kind: Kind): Boolean {
+        if (networks[kind] == null) return false
+        val anyValidated = networks.keys.any { validated[it] == true }
+        return !anyValidated || validated[kind] == true
+    }
 
     fun all(): List<Network> = networks.values.toList()
 

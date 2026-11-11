@@ -118,7 +118,7 @@ class MergeVpnService : VpnService() {
                 val mobileNow = if (m == null) 0L else m.getLong("rx") + m.getLong("tx")
                 val used = if (mobileNow >= lastMobile) mobileNow - lastMobile else mobileNow // counters restart when mobile rejoins
                 lastMobile = mobileNow
-                if (n.network(DualNetworks.Kind.WIFI) != null) Usage.add(this, used)
+                if (n.usable(DualNetworks.Kind.WIFI)) Usage.add(this, used)
                 mobilePolicy(rate, n)
             }
         }
@@ -135,7 +135,7 @@ class MergeVpnService : VpnService() {
      * - otherwise: always.
      */
     private fun mobilePolicy(bytesPerSecond: Double, n: DualNetworks) {
-        val wifi = n.network(DualNetworks.Kind.WIFI) != null
+        val wifi = n.usable(DualNetworks.Kind.WIFI)
         val held = n.held(DualNetworks.Kind.MOBILE)
         val limit = Settings.limitMB(this).toLong() * 1_000_000
         overLimit = limit > 0 && Usage.mobileToday(this) >= limit
