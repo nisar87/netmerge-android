@@ -20,6 +20,7 @@
 
     <application
         android:label="NetMerge"
+        android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
         android:usesCleartextTraffic="true">
 
@@ -54,7 +55,7 @@
         <service
             android:name=".MergeTileService"
             android:exported="true"
-            android:icon="@android:drawable/stat_sys_download_done"
+            android:icon="@drawable/ic_merge"
             android:label="NetMerge"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>

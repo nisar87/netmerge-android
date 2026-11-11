@@ -55,7 +55,7 @@ class MergeVpnService : VpnService() {
         val n = Notification.Builder(this, "merge")
             .setContentTitle("NetMerge is merging Wi-Fi and mobile data")
             .setContentText("Tap to see what each network carries")
-            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setSmallIcon(R.drawable.ic_merge)
             .setContentIntent(open)
             .addAction(Notification.Action.Builder(null, "Stop", stop).build())
             .setOngoing(true)
