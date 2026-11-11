@@ -156,3 +156,18 @@ func TestVerySlowNetworkGetsATrickle(t *testing.T) {
 		t.Fatalf("very slow mobile got %d of 1000 new connections, want a trickle (about 30): %v", got["mobile"], got)
 	}
 }
+
+// A network that has not carried anything yet is not cut to a trickle, however fast the other one is.
+func TestUnmeasuredNetworkIsNotTrickled(t *testing.T) {
+	var s Splitter
+	s.SetNets([]Net{{Name: "wifi", V4: true}, {Name: "mobile", V4: true}})
+	mrx, _, _ := s.Counter("mobile")
+	for i := 0; i < 5; i++ {
+		mrx.Add(30_000_000)
+		s.Tick(1)
+	}
+	got := picks(&s, 1000, false)
+	if got["wifi"] < 25 {
+		t.Fatalf("unmeasured Wi-Fi got only %d of 1000: %v", got["wifi"], got)
+	}
+}

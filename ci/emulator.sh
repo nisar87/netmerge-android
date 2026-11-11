@@ -23,7 +23,7 @@ adb shell am start -n dev.netmerge.android/.MainActivity --ez merge true
 sleep 20
 adb shell dumpsys connectivity | grep -c "VPN CONNECTED" || true
 adb shell am instrument -w -r -e class dev.netmerge.probe.ProbeTest#pagesOpen dev.netmerge.probe.test/androidx.test.runner.AndroidJUnitRunner > probe1.txt; cat probe1.txt
-adb shell am instrument -w -r -e class dev.netmerge.probe.ProbeTest#download -e conns 8 -e secs 15 -e size 40000000 dev.netmerge.probe.test/androidx.test.runner.AndroidJUnitRunner > probe2.txt; cat probe2.txt
+adb shell am instrument -w -r -e class dev.netmerge.probe.ProbeTest#download -e conns 8 -e secs 15 -e size 4000000000 dev.netmerge.probe.test/androidx.test.runner.AndroidJUnitRunner > probe2.txt; cat probe2.txt
 sleep 3
 adb logcat -d -s NetMergeSpike NetMergeProbe GoLog > logcat.txt || true
 grep ENGINE logcat.txt | tail -5
