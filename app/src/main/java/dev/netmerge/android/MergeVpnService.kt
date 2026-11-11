@@ -39,7 +39,7 @@ class MergeVpnService : VpnService() {
         intent?.getStringExtra("include")?.let { Excluded.set(this, it, false) }
         goForeground()
         val gen = ++generation
-        thread(name = "merge-start") { startMerging(gen) }
+        thread(name = "merge-start") { safeStart(gen) }
         return START_STICKY
     }
 
@@ -68,6 +68,16 @@ class MergeVpnService : VpnService() {
         }
     }
 
+    private fun safeStart(gen: Int) {
+        try {
+            startMerging(gen)
+        } catch (e: Exception) {
+            Log.e(TAG, "ENGINE start failed", e)
+            event("start failed: $e")
+            failed(gen)
+        }
+    }
+
     private fun startMerging(gen: Int) {
         val n = DualNetworks(this) { networksChanged() }.also { nets = it; it.start() }
         n.awaitBoth(15_000) // start with what is there; a network that comes later joins by itself
@@ -90,16 +100,32 @@ class MergeVpnService : VpnService() {
             .establish()
         if (pfd == null) {
             Log.e(TAG, "ENGINE the VPN could not be started (permission?)")
+            event("start failed: no VPN (permission?)")
+            failed(gen)
             return
         }
         val json = n.engineJson()
-        try {
-            mobile.Mobile.start(pfd.detachFd().toLong(), mtu.toLong(), json)
-        } catch (e: Exception) {
-            Log.e(TAG, "ENGINE failed to start: $e")
+        val fd = pfd.detachFd().toLong()
+        val err = runCatching { mobile.Mobile.start(fd, mtu.toLong(), json) }.exceptionOrNull()
+        if (err != null) {
+            // "already running": an engine of an earlier start was still there; stop it and try once more
+            runCatching { mobile.Mobile.stop() }
+            val again = runCatching { mobile.Mobile.start(fd, mtu.toLong(), json) }.exceptionOrNull()
+            event("start: engine said ${err.message}; ${if (again == null) "started on the second try" else "second try failed: ${again.message}"}")
+            if (again != null) {
+                Log.e(TAG, "ENGINE failed to start: $again")
+                runCatching { android.os.ParcelFileDescriptor.adoptFd(fd.toInt()).close() }
+                failed(gen)
+                return
+            }
+        }
+        if (stopped || gen != generation) {
+            // stopped while starting: do not leave this engine running
+            runCatching { mobile.Mobile.stop() }
             return
         }
         running = true
+        retried = false
         MergeTileService.update(this)
         Log.i(TAG, "ENGINE started with $json")
         event("started mtu=$mtu $json")
@@ -171,12 +197,32 @@ class MergeVpnService : VpnService() {
         event("networks $json")
     }
 
+    /** Starting failed: start again once after 2 s (the earlier VPN may still have been closing), then give up. */
+    private var retried = false
+
+    private fun failed(gen: Int) {
+        nets?.stop()
+        nets = null
+        if (retried || stopped || gen != generation) {
+            active = false
+            return
+        }
+        retried = true
+        thread(name = "merge-retry") {
+            SystemClock.sleep(2000)
+            if (!stopped && gen == generation) {
+                event("start: trying again")
+                safeStart(gen)
+            }
+        }
+    }
+
     private fun stopMerging() {
         Usage.flush(this)
         generation++
         stopped = true
         active = false
-        if (running) runCatching { mobile.Mobile.stop() }
+        runCatching { mobile.Mobile.stop() } // always: an engine of a start that had not finished must not be left running
         running = false
         MergeTileService.update(this)
         nets?.stop()
