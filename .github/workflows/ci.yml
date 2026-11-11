@@ -86,6 +86,8 @@ jobs:
             grep -q "^OK (" probe2.txt
             grep ENGINE logcat.txt | grep '"nets"' | tail -1 | sed 's/.*ENGINE //' | jq -e '[.nets[] | select(.rx > 100000)] | length >= 2'
             sh ci/dropout.sh
+            adb shell am start -n dev.netmerge.android/.MainActivity; sleep 4; adb shell screencap -p /sdcard/screen-merging.png; adb pull /sdcard/screen-merging.png . || true
+            adb shell am start -n dev.netmerge.android/.MainActivity --ez merge false; sleep 4; adb shell screencap -p /sdcard/screen-off.png; adb pull /sdcard/screen-off.png . || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -94,6 +96,7 @@ jobs:
             instrument.txt
             probe*.txt
             logcat.txt
+            screen-*.png
           retention-days: 14
       - uses: actions/upload-artifact@v4
         if: matrix.api == 35
