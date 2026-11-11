@@ -86,9 +86,10 @@ jobs:
 
   test-build:
     # The test app for a real phone: kept on a pre-release named test-build, replaced on every push to main, so the
-    # phone test can download it (it is a test build, not a release).
+    # phone test can download it (it is a test build, not a release). A run started by hand on another branch puts its
+    # build on test-build-branch instead, so a change can be tried on the phone before it is merged.
     needs: emulator
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || (github.ref != 'refs/heads/main' && github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -98,10 +99,11 @@ jobs:
       - name: Put the test app on the test-build pre-release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref == 'refs/heads/main' && 'test-build' || 'test-build-branch' }}
         run: |
           find apks -name '*.apk' -exec cp {} . \;
-          gh release delete test-build -R ${{ github.repository }} --yes --cleanup-tag || true
-          gh release create test-build -R ${{ github.repository }} --prerelease --target ${{ github.sha }} \
+          gh release delete $TAG -R ${{ github.repository }} --yes --cleanup-tag || true
+          gh release create $TAG -R ${{ github.repository }} --prerelease --target ${{ github.sha }} \
             --title "Test build (not a release)" \
-            --notes "Built from ${{ github.sha }} for testing on a real phone over USB. Not for daily use." \
+            --notes "Built from ${{ github.ref_name }} ${{ github.sha }} for testing on a real phone over USB. Not for daily use." \
             app-arm64-v8a-release.apk app-universal-release.apk app-universal-debug.apk app-debug-androidTest.apk probe-debug.apk probe-debug-androidTest.apk
