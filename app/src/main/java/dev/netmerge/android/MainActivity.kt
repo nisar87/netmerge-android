@@ -235,6 +235,7 @@ class MainActivity : Activity() {
         if (requestCode == 2 && resultCode == RESULT_OK && pendingMerge) {
             pendingMerge = false
             val i = Intent(this, MergeVpnService::class.java).putExtra("mtu", intent.getIntExtra("mtu", MergeVpnService.DEFAULT_MTU))
+            if (intent.hasExtra("ondemand")) i.putExtra("ondemand", intent.getBooleanExtra("ondemand", true))
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
         }
     }

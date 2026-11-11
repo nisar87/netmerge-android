@@ -30,5 +30,6 @@ grep -q "^OK (" probe1.txt || exit 1
 grep -q "^OK (" probe2.txt || exit 1
 grep ENGINE logcat.txt | grep '"nets"' | tail -1 | sed 's/.*ENGINE //' | jq -e '[.nets[] | select(.rx > 100000)] | length >= 2' || exit 1
 sh ci/dropout.sh || exit 1
+sh ci/ondemand.sh || exit 1
 adb shell am start -n dev.netmerge.android/.MainActivity; sleep 4; adb shell screencap -p /sdcard/screen-merging.png; adb pull /sdcard/screen-merging.png . || true
 adb shell am start -n dev.netmerge.android/.MainActivity --ez merge false; sleep 4; adb shell screencap -p /sdcard/screen-off.png; adb pull /sdcard/screen-off.png . || true

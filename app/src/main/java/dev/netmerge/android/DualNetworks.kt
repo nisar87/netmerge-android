@@ -28,38 +28,61 @@ class DualNetworks(context: Context, private val onChange: (() -> Unit)? = null)
 
     private val cm = context.getSystemService(ConnectivityManager::class.java)
     private val networks = ConcurrentHashMap<Kind, Network>()
-    private val callbacks = mutableListOf<ConnectivityManager.NetworkCallback>()
+    private val callbacks = ConcurrentHashMap<Kind, ConnectivityManager.NetworkCallback>()
 
     fun start() {
-        for (kind in Kind.values()) {
+        for (kind in Kind.values()) hold(kind, true)
+    }
+
+    /** Whether Android is asked to keep this network up (requested) right now. */
+    fun held(kind: Kind): Boolean = callbacks.containsKey(kind)
+
+    /**
+     * Asks Android to keep a network up (true) or lets it go (false). Letting mobile data go when merging has nothing
+     * to gain saves battery: the phone then keeps only its normal network.
+     */
+    @Synchronized
+    fun hold(kind: Kind, on: Boolean) {
+        if (!on) {
+            val cb = callbacks.remove(kind) ?: return
+            runCatching { cm.unregisterNetworkCallback(cb) }
+            if (networks.remove(kind) != null) onChange?.invoke()
+            Log.i(TAG, "$kind released")
+            return
+        }
+        if (callbacks.containsKey(kind)) return
+        run {
             val request = NetworkRequest.Builder()
                 .addTransportType(kind.transport)
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                 .build()
             val cb = object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
+                    if (callbacks[kind] !== this) return // released meanwhile
                     networks[kind] = network
                     Log.i(TAG, "$kind available: ${describe(network)}")
                     onChange?.invoke()
                 }
 
                 override fun onLinkPropertiesChanged(network: Network, lp: LinkProperties) {
+                    if (callbacks[kind] !== this) return // released meanwhile
                     if (networks[kind] == network) onChange?.invoke()
                 }
 
                 override fun onLost(network: Network) {
+                    if (callbacks[kind] !== this) return // released meanwhile
                     networks.remove(kind, network)
                     Log.i(TAG, "$kind lost")
                     onChange?.invoke()
                 }
             }
             cm.requestNetwork(request, cb)
-            callbacks += cb
+            callbacks[kind] = cb
         }
     }
 
     fun stop() {
-        callbacks.forEach { runCatching { cm.unregisterNetworkCallback(it) } }
+        callbacks.values.forEach { runCatching { cm.unregisterNetworkCallback(it) } }
         callbacks.clear()
         networks.clear()
     }
