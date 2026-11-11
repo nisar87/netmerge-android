@@ -27,6 +27,7 @@ class MergeVpnService : VpnService() {
         }
         if (running) return START_STICKY
         stopped = false
+        mtu = intent?.getIntExtra("mtu", DEFAULT_MTU)?.takeIf { it in 1280..65535 } ?: DEFAULT_MTU
         goForeground()
         thread(name = "merge-start") { startMerging() }
         return START_STICKY
@@ -55,7 +56,7 @@ class MergeVpnService : VpnService() {
         n.awaitBoth(15_000) // start with what is there; a network that comes later joins by itself
         val pfd = Builder()
             .setSession("NetMerge")
-            .setMtu(MTU)
+            .setMtu(mtu)
             .addAddress("10.111.0.2", 32)
             .addAddress("fd6e:6d65:7267::2", 128)
             .addRoute("0.0.0.0", 0)
@@ -71,14 +72,14 @@ class MergeVpnService : VpnService() {
         }
         val json = n.engineJson()
         try {
-            mobile.Mobile.start(pfd.detachFd().toLong(), MTU.toLong(), json)
+            mobile.Mobile.start(pfd.detachFd().toLong(), mtu.toLong(), json)
         } catch (e: Exception) {
             Log.e(TAG, "ENGINE failed to start: $e")
             return
         }
         running = true
         Log.i(TAG, "ENGINE started with $json")
-        event("started $json")
+        event("started mtu=$mtu $json")
         thread(name = "merge-stats") {
             while (!stopped) {
                 SystemClock.sleep(2000)
@@ -135,7 +136,10 @@ class MergeVpnService : VpnService() {
 
     companion object {
         const val ACTION_STOP = "dev.netmerge.android.MERGE_STOP"
-        const val MTU = 1500
+        /** The VPN's packet size. Bigger packets mean fewer of them for the engine's stack to handle per GB (the
+         *  networks themselves still use their own size). Tests can pass "mtu" to compare. */
+        const val DEFAULT_MTU = 1500
+        @Volatile var mtu = DEFAULT_MTU
         @Volatile var running = false
     }
 }

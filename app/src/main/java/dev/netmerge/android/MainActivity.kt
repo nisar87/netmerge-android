@@ -70,7 +70,7 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode == 2 && resultCode == RESULT_OK && pendingMerge) {
             pendingMerge = false
-            startService(Intent(this, MergeVpnService::class.java))
+            startService(Intent(this, MergeVpnService::class.java).putExtra("mtu", intent.getIntExtra("mtu", MergeVpnService.DEFAULT_MTU)))
             out.text = "Merging started"
             return
         }

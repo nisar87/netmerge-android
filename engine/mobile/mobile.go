@@ -4,6 +4,7 @@ package mobile
 import (
 	"encoding/json"
 	"errors"
+	"runtime"
 	"sync"
 
 	"github.com/nisar87/netmerge-android/engine/split"
@@ -67,6 +68,10 @@ func Stats() string {
 	if e == nil {
 		return ""
 	}
-	b, _ := json.Marshal(map[string]any{"nets": e.Split.Stats(), "fails": e.Fails(), "drops": e.Drops()})
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	// open/goroutines/heap: watched by the long-run test (they must not keep growing)
+	b, _ := json.Marshal(map[string]any{"nets": e.Split.Stats(), "fails": e.Fails(), "drops": e.Drops(),
+		"open": e.Open(), "goroutines": runtime.NumGoroutine(), "heapKB": m.HeapAlloc >> 10})
 	return string(b)
 }

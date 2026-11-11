@@ -87,6 +87,13 @@ func (e *Engine) SetNets(nets []split.Net) {
 	e.drops.Add(int64(len(dead)))
 }
 
+// Open: outgoing connections open now.
+func (e *Engine) Open() int {
+	e.connMu.Lock()
+	defer e.connMu.Unlock()
+	return len(e.conns)
+}
+
 // Drops: connections closed because their network left.
 func (e *Engine) Drops() int64 { return e.drops.Load() }
 
