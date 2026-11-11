@@ -16,8 +16,21 @@ import (
 	"github.com/xjasonlyu/tun2socks/v2/core/device/fdbased"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 
+	"github.com/nisar87/netmerge-android/engine/dnsblock"
 	"github.com/nisar87/netmerge-android/engine/split"
 )
+
+// The VPN's own DNS server addresses (what Android gives apps as their DNS). They exist only inside the engine:
+// questions to them are answered by the block list or sent on to a real DNS server. Being inside the VPN, they do
+// not answer encrypted DNS (port 853), so Android's "Private DNS: automatic" falls back to plain DNS, which the
+// block list can see.
+var (
+	VirtualDNS4 = net.IPv4(10, 111, 0, 53).To4()
+	VirtualDNS6 = net.ParseIP("fd6e:6d65:7267::53")
+	upstreamDNS = []net.IP{net.IPv4(1, 1, 1, 1).To4(), net.IPv4(8, 8, 8, 8).To4()}
+)
+
+func isVirtualDNS(ip net.IP) bool { return ip.Equal(VirtualDNS4) || ip.Equal(VirtualDNS6) }
 
 // Engine is one running VPN.
 type Engine struct {
@@ -28,6 +41,10 @@ type Engine struct {
 	once  sync.Once
 	fails atomic.Int64
 
+	// Block answers DNS questions for blocked names (ads, trackers); always set, off until switched on.
+	Block *dnsblock.Blocker
+	dnsN  atomic.Uint32 // which upstream DNS server next
+
 	connMu sync.Mutex
 	conns  map[net.Conn]int64 // open outgoing connections and the network handle each is bound to
 	drops  atomic.Int64
@@ -35,7 +52,12 @@ type Engine struct {
 
 // Start runs the engine on the VPN's file descriptor.
 func Start(fd int, mtu int, nets []split.Net) (*Engine, error) {
-	e := &Engine{stop: make(chan struct{}), conns: map[net.Conn]int64{}}
+	return StartWith(fd, mtu, nets, dnsblock.New())
+}
+
+// StartWith is Start with a block list that outlives one engine (the list is loaded once, not at every start).
+func StartWith(fd int, mtu int, nets []split.Net, block *dnsblock.Blocker) (*Engine, error) {
+	e := &Engine{stop: make(chan struct{}), conns: map[net.Conn]int64{}, Block: block}
 	e.Split.SetNets(nets)
 	dev, err := fdbased.Open(strconv.Itoa(fd), uint32(mtu), 0)
 	if err != nil {
@@ -175,6 +197,12 @@ func (e *Engine) HandleUDP(c adapter.UDPConn) { go e.relayUDP(c) }
 func (e *Engine) relayTCP(c adapter.TCPConn) {
 	defer c.Close()
 	ip, port := dest(c.ID())
+	if isVirtualDNS(ip) {
+		if port != 53 {
+			return // encrypted DNS (853) is refused: Android then uses plain DNS, which can be filtered
+		}
+		ip = e.upstream()
+	}
 	out, n, err := e.dial("tcp", ip, port)
 	if err != nil {
 		return
@@ -190,10 +218,73 @@ func (e *Engine) relayTCP(c adapter.TCPConn) {
 	<-done
 }
 
+// upstream: the real DNS server for the next question to the VPN's own DNS address (taking turns).
+func (e *Engine) upstream() net.IP {
+	return upstreamDNS[int(e.dnsN.Add(1))%len(upstreamDNS)]
+}
+
+// relayDNS handles one app's DNS flow: questions for blocked names are answered here; the rest go to the DNS
+// server (the real one when the app asked the VPN's own address).
+func (e *Engine) relayDNS(c adapter.UDPConn, ip net.IP) {
+	defer c.Close()
+	if isVirtualDNS(ip) {
+		ip = e.upstream()
+	}
+	const idle = 10 * time.Second
+	var out net.Conn
+	var tx *atomic.Int64
+	done := make(chan struct{})
+	defer func() {
+		if out != nil {
+			out.Close()
+			<-done
+			e.untrack(out)
+		}
+	}()
+	buf := make([]byte, 64<<10)
+	for {
+		_ = c.SetReadDeadline(time.Now().Add(idle))
+		k, err := c.Read(buf)
+		if err != nil {
+			return
+		}
+		if ans, ok := e.Block.Answer(buf[:k]); ok {
+			if _, err := c.Write(ans); err != nil {
+				return
+			}
+			continue
+		}
+		if out == nil {
+			o, n, err := e.dial("udp", ip, 53)
+			if err != nil {
+				return
+			}
+			out = o
+			rx, t, active := e.Split.Counter(n.Name)
+			tx = t
+			active.Add(1)
+			go func() {
+				defer close(done)
+				defer active.Add(-1)
+				copyPackets(c, out, rx, idle)
+				c.Close() // the server went quiet: end the flow (the app asks again on a new one)
+			}()
+		}
+		if _, err := out.Write(buf[:k]); err != nil {
+			return
+		}
+		tx.Add(int64(k))
+	}
+}
+
 // relayUDP relays one UDP flow (DNS, QUIC, calls) on one network for its whole life.
 func (e *Engine) relayUDP(c adapter.UDPConn) {
-	defer c.Close()
 	ip, port := dest(c.ID())
+	if port == 53 {
+		e.relayDNS(c, ip)
+		return
+	}
+	defer c.Close()
 	out, n, err := e.dial("udp", ip, port)
 	if err != nil {
 		return
@@ -203,9 +294,6 @@ func (e *Engine) relayUDP(c adapter.UDPConn) {
 	active.Add(1)
 	defer active.Add(-1)
 	idle := 60 * time.Second
-	if port == 53 {
-		idle = 10 * time.Second
-	}
 	done := make(chan struct{}, 2)
 	go func() { copyPackets(out, c, tx, idle); done <- struct{}{} }()
 	go func() { copyPackets(c, out, rx, idle); done <- struct{}{} }()

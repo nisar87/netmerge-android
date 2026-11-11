@@ -27,6 +27,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:theme="@android:style/Theme.Material.NoActionBar"
             android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -34,7 +35,6 @@
             </intent-filter>
         </activity>
 
-        <activity android:name=".AppsActivity" android:exported="false" />
         <service
             android:name=".SpikeVpnService"
             android:exported="false"

@@ -27,16 +27,21 @@ class MergeVpnService : VpnService() {
             stopSelf(startId) // not stopSelf(): a start sent right after this stop must still run
             return START_NOT_STICKY
         }
-        if (active) return START_STICKY // already starting or running
-        active = true
-        stopped = false
-        mtu = intent?.getIntExtra("mtu", DEFAULT_MTU)?.takeIf { it in 1280..65535 } ?: DEFAULT_MTU
+        // settings that came with the start (tests): taken also when merging already runs
         if (intent?.hasExtra("ondemand") == true) {
             Settings.setOnDemand(this, intent.getBooleanExtra("ondemand", false))
         }
         if (intent?.hasExtra("limitmb") == true) Settings.setLimitMB(this, intent.getIntExtra("limitmb", 0))
-        intent?.getStringExtra("exclude")?.let { Excluded.set(this, it, true) } // tests
+        if (intent?.hasExtra("blocking") == true) {
+            Blocklists.setOn(this, intent.getBooleanExtra("blocking", true))
+            if (active) thread { runCatching { Blocklists.apply(this) } }
+        }
+        intent?.getStringExtra("exclude")?.let { Excluded.set(this, it, true) }
         intent?.getStringExtra("include")?.let { Excluded.set(this, it, false) }
+        if (active) return START_STICKY // already starting or running
+        active = true
+        stopped = false
+        mtu = intent?.getIntExtra("mtu", DEFAULT_MTU)?.takeIf { it in 1280..65535 } ?: DEFAULT_MTU
         goForeground()
         val gen = ++generation
         thread(name = "merge-start") { safeStart(gen) }
@@ -82,6 +87,7 @@ class MergeVpnService : VpnService() {
         val n = DualNetworks(this) { networksChanged() }.also { nets = it; it.start() }
         n.awaitBoth(15_000) // start with what is there; a network that comes later joins by itself
         if (stopped || gen != generation) return // stopped while waiting for the networks
+        runCatching { Blocklists.apply(this) } // the lists already on the phone; fresh ones are fetched below
         val pfd = Builder()
             .setSession("NetMerge")
             .setMtu(mtu)
@@ -89,8 +95,9 @@ class MergeVpnService : VpnService() {
             .addAddress("fd6e:6d65:7267::2", 128)
             .addRoute("0.0.0.0", 0)
             .addRoute("::", 0)
-            .addDnsServer("1.1.1.1")
-            .addDnsServer("8.8.8.8")
+            // the engine's own DNS address: blocked names are answered there, the rest go to a real DNS server
+            .addDnsServer("10.111.0.53")
+            .addDnsServer("fd6e:6d65:7267::53")
             .addDisallowedApplication(packageName)
             .apply {
                 // apps the user left out of merging use the phone's normal network
@@ -126,6 +133,9 @@ class MergeVpnService : VpnService() {
         }
         running = true
         retried = false
+        thread(name = "blocklists") {
+            if (runCatching { Blocklists.refresh(this) }.getOrDefault(false)) runCatching { Blocklists.apply(this) }
+        }
         MergeTileService.update(this)
         Log.i(TAG, "ENGINE started with $json")
         event("started mtu=$mtu $json")

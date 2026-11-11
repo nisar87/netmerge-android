@@ -54,4 +54,28 @@ class ProbeTest {
         report("download", "%.1f Mbps, %.0f MB in %.1f s with %d connections, %d errors, longest stall %.1f s".format(r.mbps, r.mb, r.seconds, r.conns, r.errors, r.gap))
         assertTrue("download failed", r.mb > 0)
     }
+
+    /** -e blocked a,b -e open c,d: names that must (not) resolve to a real address through the VPN's DNS. */
+    @Test
+    fun dnsBlocking() {
+        val args = InstrumentationRegistry.getArguments()
+        org.junit.Assume.assumeTrue("runs only with -e blocked", args.getString("blocked") != null)
+        fun real(name: String): Boolean = try {
+            java.net.InetAddress.getAllByName(name).any { !it.isAnyLocalAddress && !it.isLoopbackAddress }
+        } catch (e: java.net.UnknownHostException) {
+            false
+        }
+        val report = StringBuilder()
+        var bad = 0
+        for (n in args.getString("blocked")!!.split(",").filter { it.isNotBlank() }) {
+            val r = real(n); if (r) bad++
+            report.append("$n=${if (r) "RESOLVED" else "blocked"} ")
+        }
+        for (n in (args.getString("open") ?: "").split(",").filter { it.isNotBlank() }) {
+            val r = real(n); if (!r) bad++
+            report.append("$n=${if (r) "resolved" else "NOT RESOLVED"} ")
+        }
+        InstrumentationRegistry.getInstrumentation().sendStatus(0, android.os.Bundle().apply { putString("dns", report.toString()) })
+        org.junit.Assert.assertEquals(report.toString(), 0, bad)
+    }
 }
