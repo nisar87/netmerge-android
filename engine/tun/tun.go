@@ -9,11 +9,13 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/xjasonlyu/tun2socks/v2/core"
 	"github.com/xjasonlyu/tun2socks/v2/core/adapter"
 	"github.com/xjasonlyu/tun2socks/v2/core/device/fdbased"
+	"github.com/xjasonlyu/tun2socks/v2/core/option"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 
 	"github.com/nisar87/netmerge-android/engine/dnsblock"
@@ -63,7 +65,12 @@ func StartWith(fd int, mtu int, nets []split.Net, block *dnsblock.Blocker) (*Eng
 	if err != nil {
 		return nil, err
 	}
-	st, err := core.CreateStack(&core.Config{LinkEndpoint: dev, TransportHandler: e})
+	st, err := core.CreateStack(&core.Config{LinkEndpoint: dev, TransportHandler: e, Options: []option.Option{
+		// What an app sends (uploads) waits in the engine's own TCP stack until it goes out. 1 MB per connection
+		// (the default) let an app "send" many MB in the first second while nothing had left the phone yet: a
+		// speed test showed a big false spike. 256 KB is still plenty on the phone's own (fast) path to the engine.
+		option.WithTCPReceiveBufferSize(appSendBuffer),
+	}})
 	if err != nil {
 		dev.Close()
 		return nil, err
@@ -170,7 +177,7 @@ func (e *Engine) dial(proto string, ip net.IP, port int) (net.Conn, split.Net, e
 		tried[n.Name] = true
 		// 5 s: a working network answers far sooner; a network that is going away should not hold the app long,
 		// the next try goes to another network.
-		d := net.Dialer{Timeout: 5 * time.Second, Control: bindToNetwork(n.Handle)}
+		d := net.Dialer{Timeout: 5 * time.Second, Control: control(proto, n.Handle)}
 		c, err := d.Dial(proto, addr)
 		if err == nil {
 			e.track(c, n.Handle)
@@ -343,3 +350,29 @@ func closeWrite(c net.Conn) {
 }
 
 func init() { log.SetFlags(0) }
+
+// appSendBuffer: how much of an app's upload the engine's stack holds per connection (see Start).
+const appSendBuffer = 256 << 10
+
+// notSentLowat: the most that may wait unsent in a socket's own buffer. Without it Android lets several MB wait
+// per connection, and an app's upload looks done long before it has left the phone (TCP_NOTSENT_LOWAT keeps what
+// is already on its way unlimited, so speed does not suffer).
+const notSentLowat = 128 << 10
+
+// control prepares each outgoing socket: bound to its network, and for TCP a limit on unsent data.
+func control(proto string, handle int64) func(network, address string, c syscall.RawConn) error {
+	bind := bindToNetwork(handle)
+	return func(network, address string, c syscall.RawConn) error {
+		if bind != nil {
+			if err := bind(network, address, c); err != nil {
+				return err
+			}
+		}
+		if proto == "tcp" {
+			_ = c.Control(func(fd uintptr) {
+				_ = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_TCP, 25 /* TCP_NOTSENT_LOWAT */, notSentLowat)
+			})
+		}
+		return nil
+	}
+}

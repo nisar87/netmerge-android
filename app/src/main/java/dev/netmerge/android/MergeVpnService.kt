@@ -158,6 +158,7 @@ class MergeVpnService : VpnService() {
         event("started mtu=$mtu $json")
         thread(name = "merge-stats") {
             var lastRx = -1L
+            var lastAt = SystemClock.elapsedRealtime()
             var lastMobile = 0L
             var lastBlocked = 0L
             var tick = 0
@@ -172,7 +173,12 @@ class MergeVpnService : VpnService() {
                 val nets = runCatching { org.json.JSONObject(s).getJSONArray("nets") }.getOrNull() ?: continue
                 val all = (0 until nets.length()).map { nets.getJSONObject(it) }
                 val rx = all.sumOf { it.getLong("rx") }
-                val rate = if (lastRx in 0..rx) (rx - lastRx) / 2.0 else 0.0
+                // bytes per second over the time that really passed: the 2 s sleep can last much longer (phone
+                // asleep, busy), and dividing by 2 then showed false speed spikes in the notification
+                val now = SystemClock.elapsedRealtime()
+                val secs = ((now - lastAt) / 1000.0).coerceAtLeast(0.5)
+                lastAt = now
+                val rate = if (lastRx in 0..rx) (rx - lastRx) / secs else 0.0
                 lastRx = rx
                 // mobile data used by merging (counted only while Wi-Fi is there too)
                 val m = all.firstOrNull { it.getString("name") == "mobile" }
