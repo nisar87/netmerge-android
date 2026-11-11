@@ -61,6 +61,14 @@ object Settings {
     fun limitMB(ctx: Context) = p(ctx).getInt("mobileLimitMB", 0)
     fun setLimitMB(ctx: Context, v: Int) = p(ctx).edit().putInt("mobileLimitMB", v).apply()
     val limits = intArrayOf(0, 500, 1000, 2000, 5000)
+    /** Merging pauses when the battery falls to this level (%); 0 = never. */
+    fun batteryStop(ctx: Context) = p(ctx).getInt("batteryStop", 0)
+    fun setBatteryStop(ctx: Context, v: Int) = p(ctx).edit().putInt("batteryStop", v).apply()
+    /** A pause for the battery ends when the battery has charged back to this level (%). */
+    fun batteryResume(ctx: Context) = p(ctx).getInt("batteryResume", 50)
+    fun setBatteryResume(ctx: Context, v: Int) = p(ctx).edit().putInt("batteryResume", v).apply()
+    val batteryStops = intArrayOf(0, 10, 15, 20, 25, 30, 40)
+    val batteryResumes = intArrayOf(30, 40, 50, 60, 80, 90)
 }
 /** The apps left out of merging (package names). */
 object Excluded {

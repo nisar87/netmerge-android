@@ -56,6 +56,7 @@ fun HomeScreen(live: Live, starting: Boolean, onToggle: () -> Unit) {
         Text(
             when {
                 starting -> "Starting…"
+                live.paused -> "Paused to save battery (${live.battery}%). Starts again at ${live.resumeAt}%."
                 live.running -> "Both networks working together"
                 live.nets.all { it.connected } -> "Wi-Fi and mobile data are ready"
                 live.nets.none { it.connected } -> "No network"
@@ -94,6 +95,7 @@ fun HomeScreen(live: Live, starting: Boolean, onToggle: () -> Unit) {
 private fun StatusChip(live: Live, starting: Boolean) {
     val (label, color) = when {
         starting -> "Starting" to Brand.Amber
+        live.paused -> "Paused" to Brand.Amber
         live.running -> "On" to Brand.Teal
         else -> "Off" to MaterialTheme.colorScheme.outline
     }

@@ -34,6 +34,9 @@ data class Live(
     val recent: List<Pair<String, Int>> = emptyList(), // name, times
     val blockedToday: Long = 0,
     val problem: String? = null, // why merging stopped by itself
+    val paused: Boolean = false, // paused until the battery charges back
+    val battery: Int = -1,       // battery level when paused
+    val resumeAt: Int = 0,       // the level merging starts again at
 )
 
 /** Reads the engine every second and works out speeds from its byte counters. */
@@ -80,6 +83,8 @@ class LiveReader(private val ctx: Context) {
             blockOn = Blocklists.on(ctx), blockNames = b?.optInt("names") ?: 0,
             blocked = b?.optLong("blocked") ?: 0, asked = b?.optLong("asked") ?: 0, recent = recent,
             blockedToday = Usage.blockedToday(ctx), problem = if (running) null else MergeVpnService.problem,
+            paused = !running && MergeVpnService.batteryPaused, battery = MergeVpnService.batteryLevel,
+            resumeAt = MergeVpnService.resumeLevel(ctx),
         )
     }
 

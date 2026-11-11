@@ -144,7 +144,7 @@ private fun App(pending: SnapshotStateList<Intent>, tabRequest: MutableState<Str
             } else {
                 AnimatedContent(tab, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "tab") { t ->
                     when (t) {
-                        Tab.Home -> HomeScreen(live, starting) { if (live.running) stop() else start(null) }
+                        Tab.Home -> HomeScreen(live, starting) { if (live.running || live.paused) stop() else start(null) }
                         Tab.Block -> BlockingScreen(live)
                         Tab.Settings -> SettingsScreen(live, openApps = { appsOpen = true })
                     }

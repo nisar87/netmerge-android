@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import dev.netmerge.android.DualNetworks
 import dev.netmerge.android.Excluded
+import dev.netmerge.android.MergeVpnService
 import dev.netmerge.android.Settings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -41,6 +42,14 @@ fun SettingsScreen(live: Live, openApps: () -> Unit) {
     var limit by remember { mutableStateOf(Settings.limitMB(ctx)) }
     var excluded by remember { mutableStateOf(Excluded.get(ctx).size) }
     var check by remember { mutableStateOf("") }
+    var batteryStop by remember { mutableStateOf(Settings.batteryStop(ctx)) }
+    var batteryResume by remember { mutableStateOf(Settings.batteryResume(ctx)) }
+    // a running (or paused) merge looks at the battery again at once
+    fun batteryChanged() {
+        if (live.running || live.paused) runCatching {
+            ctx.startService(Intent(ctx, MergeVpnService::class.java).setAction(MergeVpnService.ACTION_CHECK))
+        }
+    }
     LaunchedEffect(Unit) { excluded = Excluded.get(ctx).size }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
@@ -68,6 +77,55 @@ fun SettingsScreen(live: Live, openApps: () -> Unit) {
                     for (l in Settings.limits) {
                         FilterChip(selected = limit == l, onClick = { limit = l; Settings.setLimitMB(ctx, l) },
                             label = { Text(if (l == 0) "None" else if (l < 1000) "$l MB" else "${l / 1000} GB") })
+                    }
+                }
+            }
+        }
+
+        Section("Battery")
+        Group {
+            Column(Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.BatteryAlert, null, tint = scheme.primary)
+                    Spacer(Modifier.width(14.dp))
+                    Column {
+                        Text("Pause when battery is low", style = MaterialTheme.typography.titleSmall)
+                        Text("Merging stops at this level; apps keep using the phone's normal network.",
+                            style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    for (l in Settings.batteryStops) {
+                        FilterChip(selected = batteryStop == l, onClick = {
+                            batteryStop = l; Settings.setBatteryStop(ctx, l)
+                            if (l != 0 && batteryResume < l + 5) { // the resume level must stay above the stop level
+                                batteryResume = Settings.batteryResumes.first { it >= l + 5 }; Settings.setBatteryResume(ctx, batteryResume)
+                            }
+                            batteryChanged()
+                        }, label = { Text(if (l == 0) "Never" else "$l%") })
+                    }
+                }
+            }
+            if (batteryStop != 0) {
+                HorizontalDivider(color = scheme.outlineVariant)
+                Column(Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.BatteryChargingFull, null, tint = scheme.primary)
+                        Spacer(Modifier.width(14.dp))
+                        Column {
+                            Text("Start again when charged to", style = MaterialTheme.typography.titleSmall)
+                            Text(if (live.paused) "Paused now: battery ${live.battery}%." else "Merging comes back by itself at this level.",
+                                style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        for (l in Settings.batteryResumes.filter { it >= batteryStop + 5 }) {
+                            FilterChip(selected = batteryResume == l, onClick = {
+                                batteryResume = l; Settings.setBatteryResume(ctx, l); batteryChanged()
+                            }, label = { Text("$l%") })
+                        }
                     }
                 }
             }

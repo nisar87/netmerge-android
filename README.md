@@ -22,8 +22,9 @@ The splitter learns each network's speed from what it carries, keeps it while id
 shown its speed a fair chance, and gives a network far slower than the fastest only a trickle of new connections.
 When a network leaves, its connections are closed at once so apps reconnect on the one that works.
 
-Settings: mobile data only when it helps (let go after a quiet minute, back for big downloads; off by default) and a
-daily limit for mobile data used by merging.
+Settings: mobile data only when it helps (let go after a quiet minute, back for big downloads; off by default), a
+daily limit for mobile data used by merging, and a battery guard (pause merging when the battery falls to a chosen
+level, start again by itself once it has charged back to a second level; off by default).
 
 ## How it is tested
 
