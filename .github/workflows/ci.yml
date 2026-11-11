@@ -79,8 +79,13 @@ jobs:
             adb shell dumpsys connectivity | grep -c "VPN CONNECTED" || true
             adb shell am instrument -w -r -e class dev.netmerge.probe.ProbeTest#pagesOpen dev.netmerge.probe.test/androidx.test.runner.AndroidJUnitRunner > probe1.txt; cat probe1.txt
             adb shell am instrument -w -r -e class dev.netmerge.probe.ProbeTest#download -e conns 8 -e secs 15 -e size 40000000 dev.netmerge.probe.test/androidx.test.runner.AndroidJUnitRunner > probe2.txt; cat probe2.txt
+            # Wi-Fi drops in the middle of a merged download (reported, not yet a pass/fail check)
+            (adb shell am instrument -w -r -e class dev.netmerge.probe.ProbeTest#download -e conns 8 -e secs 30 -e size 200000000 dev.netmerge.probe.test/androidx.test.runner.AndroidJUnitRunner > probe3.txt) &
+            sleep 8; adb shell svc wifi disable; sleep 10; adb shell svc wifi enable; wait
+            echo "dropout:"; grep -E "download=|FAILURES" probe3.txt || true
             sleep 3
             adb logcat -d -s NetMergeSpike NetMergeProbe GoLog > logcat.txt || true
+            grep -E "networks now|drops" logcat.txt | tail -4 || true
             grep ENGINE logcat.txt | tail -5
             grep -q "^OK (" probe1.txt
             grep -q "^OK (" probe2.txt

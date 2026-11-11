@@ -27,11 +27,15 @@ type Engine struct {
 	stop  chan struct{}
 	once  sync.Once
 	fails atomic.Int64
+
+	connMu sync.Mutex
+	conns  map[net.Conn]int64 // open outgoing connections and the network handle each is bound to
+	drops  atomic.Int64
 }
 
 // Start runs the engine on the VPN's file descriptor.
 func Start(fd int, mtu int, nets []split.Net) (*Engine, error) {
-	e := &Engine{stop: make(chan struct{})}
+	e := &Engine{stop: make(chan struct{}), conns: map[net.Conn]int64{}}
 	e.Split.SetNets(nets)
 	dev, err := fdbased.Open(strconv.Itoa(fd), uint32(mtu), 0)
 	if err != nil {
@@ -58,6 +62,44 @@ func (e *Engine) Stop() {
 			e.dev.Close()
 		}
 	})
+}
+
+// SetNets updates the networks. Connections on a network that left (or came back as a new network, with a new
+// handle) are closed at once: their packets can no longer go anywhere, and without this an app waits a minute or more
+// for a dead connection before it opens a new one (which then goes to a network that works).
+func (e *Engine) SetNets(nets []split.Net) {
+	e.Split.SetNets(nets)
+	live := map[int64]bool{}
+	for _, n := range nets {
+		live[n.Handle] = true
+	}
+	e.connMu.Lock()
+	var dead []net.Conn
+	for c, h := range e.conns {
+		if !live[h] {
+			dead = append(dead, c)
+		}
+	}
+	e.connMu.Unlock()
+	for _, c := range dead {
+		_ = c.Close()
+	}
+	e.drops.Add(int64(len(dead)))
+}
+
+// Drops: connections closed because their network left.
+func (e *Engine) Drops() int64 { return e.drops.Load() }
+
+func (e *Engine) track(c net.Conn, handle int64) {
+	e.connMu.Lock()
+	e.conns[c] = handle
+	e.connMu.Unlock()
+}
+
+func (e *Engine) untrack(c net.Conn) {
+	e.connMu.Lock()
+	delete(e.conns, c)
+	e.connMu.Unlock()
 }
 
 // Fails: connections that could not be opened on any network.
@@ -88,7 +130,7 @@ func (e *Engine) dial(proto string, ip net.IP, port int) (net.Conn, split.Net, e
 	addr := net.JoinHostPort(ip.String(), strconv.Itoa(port))
 	tried := map[string]bool{}
 	var lastErr error
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 4; i++ {
 		n, ok := e.Split.Pick(v6)
 		if !ok {
 			break
@@ -97,9 +139,12 @@ func (e *Engine) dial(proto string, ip net.IP, port int) (net.Conn, split.Net, e
 			continue
 		}
 		tried[n.Name] = true
-		d := net.Dialer{Timeout: 10 * time.Second, Control: bindToNetwork(n.Handle)}
+		// 5 s: a working network answers far sooner; a network that is going away should not hold the app long,
+		// the next try goes to another network.
+		d := net.Dialer{Timeout: 5 * time.Second, Control: bindToNetwork(n.Handle)}
 		c, err := d.Dial(proto, addr)
 		if err == nil {
+			e.track(c, n.Handle)
 			return c, n, nil
 		}
 		lastErr = err
@@ -127,7 +172,7 @@ func (e *Engine) relayTCP(c adapter.TCPConn) {
 	if err != nil {
 		return
 	}
-	defer out.Close()
+	defer func() { e.untrack(out); out.Close() }()
 	rx, tx, active := e.Split.Counter(n.Name)
 	active.Add(1)
 	defer active.Add(-1)
@@ -146,7 +191,7 @@ func (e *Engine) relayUDP(c adapter.UDPConn) {
 	if err != nil {
 		return
 	}
-	defer out.Close()
+	defer func() { e.untrack(out); out.Close() }()
 	rx, tx, active := e.Split.Counter(n.Name)
 	active.Add(1)
 	defer active.Add(-1)
