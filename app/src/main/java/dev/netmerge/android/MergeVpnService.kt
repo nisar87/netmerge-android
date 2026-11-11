@@ -86,6 +86,7 @@ class MergeVpnService : VpnService() {
                 if (s.isNotEmpty()) {
                     Log.i(TAG, "ENGINE $s")
                     runCatching { java.io.File(filesDir, "engine.json").writeText(s) }
+                    event("stats $s") // a timeline for tests: what each network carried, every 2 s
                 }
             }
         }
