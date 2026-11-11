@@ -146,9 +146,10 @@ did in the morning's battery test. The Wi-Fi link to the phone for testing (adb)
 
 ## 8. Still open
 
-- Battery round 2 (running): merged with mobile data always up against mobile data on demand, with the splitter fixes
-  and packet size 9000.
-- Speed on the phone with the splitter fixes (running).
-- The 3-hour run (running): leaks (memory, connections, goroutines) and Samsung's limits over hours.
-- Untested on a real phone: a Wi-Fi without internet (left out of merging since it is not validated), apps left out
-  of merging (checked on the emulator), always-on VPN after a restart of the phone.
+- Battery round 2 (merged with mobile data always up against mobile data on demand, with the splitter fixes and
+  packet size 9000) did not run: the Wi-Fi link for testing (adb over Wi-Fi) closed by itself on the phone in the
+  afternoon and needs the cable once to come back.
+- The newest test build (with: apps left out of merging, only networks with internet merged, the start-up fix, the
+  app icon) is tested on the emulators only.
+- Untested on a real phone: a Wi-Fi without internet, always-on VPN after a restart, Samsung's limits overnight.
+- Two download rounds in the 3-hour run stalled (25 s and 7 s); not explained yet.
