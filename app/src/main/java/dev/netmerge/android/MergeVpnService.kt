@@ -18,14 +18,16 @@ import kotlin.concurrent.thread
 class MergeVpnService : VpnService() {
     private var nets: DualNetworks? = null
     @Volatile private var stopped = false
+    @Volatile private var active = false // starting or running
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             stopMerging()
-            stopSelf()
+            stopSelf(startId) // not stopSelf(): a start sent right after this stop must still run
             return START_NOT_STICKY
         }
-        if (running) return START_STICKY
+        if (active) return START_STICKY // already starting or running
+        active = true
         stopped = false
         mtu = intent?.getIntExtra("mtu", DEFAULT_MTU)?.takeIf { it in 1280..65535 } ?: DEFAULT_MTU
         if (intent?.hasExtra("ondemand") == true) {
@@ -64,6 +66,7 @@ class MergeVpnService : VpnService() {
     private fun startMerging() {
         val n = DualNetworks(this) { networksChanged() }.also { nets = it; it.start() }
         n.awaitBoth(15_000) // start with what is there; a network that comes later joins by itself
+        if (stopped) return // stopped while waiting for the networks
         val pfd = Builder()
             .setSession("NetMerge")
             .setMtu(mtu)
@@ -142,6 +145,7 @@ class MergeVpnService : VpnService() {
 
     private fun stopMerging() {
         stopped = true
+        active = false
         if (running) runCatching { mobile.Mobile.stop() }
         running = false
         MergeTileService.update(this)

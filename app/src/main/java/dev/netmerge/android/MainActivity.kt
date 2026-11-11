@@ -102,7 +102,8 @@ class MainActivity : Activity() {
             addView(diag)
         }
         setContentView(ScrollView(this).apply { setBackgroundColor(bg); addView(col) })
-        handleTestIntent(intent)
+        // not when Android recreates the screen (it would replay an old start/stop)
+        if (savedInstanceState == null) handleTestIntent(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
