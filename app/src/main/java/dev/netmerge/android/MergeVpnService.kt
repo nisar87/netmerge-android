@@ -176,7 +176,7 @@ class MergeVpnService : VpnService() {
         const val ACTION_STOP = "dev.netmerge.android.MERGE_STOP"
         /** The VPN's packet size. Bigger packets mean fewer of them for the engine's stack to handle per GB (the
          *  networks themselves still use their own size). Tests can pass "mtu" to compare. */
-        const val DEFAULT_MTU = 1500
+        const val DEFAULT_MTU = 9000 // phone: about 44 s of processor per GB against 63 s at 1500, same speed
         @Volatile var mtu = DEFAULT_MTU
         /** Mobile data only while there is a lot to download (see mobileOnDemand). Off by default: connections an
          *  app already opened on Wi-Fi stay there (apps reuse them), so a download that started while mobile data
