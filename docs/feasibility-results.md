@@ -71,9 +71,21 @@ app then opens a new one, which goes to the network that works), tries another n
 test download fetches failed pieces again and reports its longest stall; the app writes its events and statistics to
 files that tests read with `adb shell run-as`.
 
+Retest on the phone with these changes (job 023, 2026-11-11, merging on, 16-connection download for 60 s, the
+network switched off at 10 s and on again at 30 s; Wi-Fi was slower than usual that morning, about 40 Mbps):
+
+| | Download | Errors | Longest stall | What the engine did |
+| --- | --- | --- | --- | --- |
+| Nothing dropped (30 s) | 32.8 Mbps | 0 | 0.6 s | Wi-Fi about 75%, mobile 25% |
+| Wi-Fi drops | 34.0 Mbps, 256 MB | 11 | 2.9 s | Wi-Fi out of the merge within a second, its 19 connections closed, mobile carried everything; Wi-Fi back in the merge about 1 s after it reconnected and carrying most again within 6 s |
+| Mobile data drops | 53.7 Mbps, 416 MB | 1 | 1.5 s | Mobile out within a second, 16 connections closed, Wi-Fi carried everything; mobile back in after it reconnected |
+
+Pages opened after each drop. The emulators in CI now run the same Wi-Fi drop on every change and fail on a stall of
+5 s or more (both: 0-3 errors, longest stall 0.1 s).
+
 ## 5. Still open
 
 - A measured battery drain with the cable unplugged (30-60 minutes, merging on vs off).
 - Keeping mobile data up when nothing is downloading: its cost while idle.
-- Samsung's background limits over hours; behaviour when Wi-Fi or mobile drops in the middle of downloads.
+- Samsung's background limits over hours.
 - Processor use: the user-space stack is the main cost; to be tuned before release.
