@@ -49,7 +49,7 @@ adb shell am start -n dev.netmerge.android/.MainActivity --es tab settings; slee
 adb shell am start -n dev.netmerge.android/.MainActivity --es tab home
 adb shell am start -n dev.netmerge.android/.MainActivity --ez merge false; sleep 3
 adb shell am force-stop dev.netmerge.android
-adb shell run-as dev.netmerge.android sh -c 'sed -i "/welcomed/d" shared_prefs/settings.xml' || true
+adb shell run-as dev.netmerge.android rm -f shared_prefs/settings.xml || true
 adb shell am start -n dev.netmerge.android/.MainActivity; sleep 4; adb shell screencap -p /sdcard/screen-welcome.png; adb pull /sdcard/screen-welcome.png . || true
 # the screenshots in the log (artifacts cannot always be downloaded): between the markers, base64
 for f in screen-merging.png screen-off.png screen-block.png screen-settings.png screen-notification.png screen-welcome.png; do [ -f $f ] && { echo "BEGIN-$f"; base64 -w0 $f; echo; echo "END-$f"; }; done
