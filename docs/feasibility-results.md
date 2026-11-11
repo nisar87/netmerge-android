@@ -120,9 +120,35 @@ between; the battery current added up every second. Build with VPN packet size 1
   same floor, so the next download split about evenly); (2) a network far slower than the other still got its share,
   which only delays a download of fixed size. Fixed on the next branch (see below).
 
-## 7. Still open
+## 7. Three hours of use (job 031/033, 2026-11-11 10:44-13:44, unplugged, screen off)
 
-- A measured battery drain with the cable unplugged (30-60 minutes, merging on vs off).
-- Keeping mobile data up when nothing is downloading: its cost while idle.
-- Samsung's background limits over hours.
-- Processor use: the user-space stack is the main cost; to be tuned before release.
+Merging on the whole time (packet size 9000, mobile data always up); every 10 minutes three pages and a 30 s
+download with 16 connections; the engine's health read every minute.
+
+- 18 rounds, 0 pages failed, downloads 48.1 Mbps on average. Two rounds were bad: one at 0.6 Mbps with a 25 s stall,
+  one at 12.5 Mbps (both in the first hour; the engine counted 8 and 5 failed connection attempts at those times, so
+  probably a network hiccup; the next round was normal each time).
+- No leak: goroutines went back to 31-45 after each download (100-110 during), open connections to 3-14, the Go
+  heap to 1-2 MB, open files to 141-153. The app's memory (RSS) rose slowly (165 to 196 MB) and fell back to about
+  170-180 MB twice (garbage collection).
+- Battery fell from 95% to 85% in 3 hours of this use (about 170 mAh per hour).
+
+Speed after the splitter fixes (job 033, same afternoon; mobile data was slow, about 15 Mbps):
+
+| | 30 s download | 140 MB download |
+| --- | --- | --- |
+| Not merged | 58.0 / 59.1 / 59.2 Mbps | 47.5 / 43.2 Mbps |
+| Merged | 60.9 / 52.3 Mbps | 49.4 / 56.5 Mbps |
+
+With mobile data this slow merging gains little (Wi-Fi carried 85%), but it no longer makes downloads slower, as it
+did in the morning's battery test. The Wi-Fi link to the phone for testing (adb) dropped after this, so battery round
+2 did not start.
+
+## 8. Still open
+
+- Battery round 2 (running): merged with mobile data always up against mobile data on demand, with the splitter fixes
+  and packet size 9000.
+- Speed on the phone with the splitter fixes (running).
+- The 3-hour run (running): leaks (memory, connections, goroutines) and Samsung's limits over hours.
+- Untested on a real phone: a Wi-Fi without internet (left out of merging since it is not validated), apps left out
+  of merging (checked on the emulator), always-on VPN after a restart of the phone.

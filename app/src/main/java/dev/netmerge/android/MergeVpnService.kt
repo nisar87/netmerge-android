@@ -35,6 +35,8 @@ class MergeVpnService : VpnService() {
             Settings.setOnDemand(this, intent.getBooleanExtra("ondemand", false))
         }
         if (intent?.hasExtra("limitmb") == true) Settings.setLimitMB(this, intent.getIntExtra("limitmb", 0))
+        intent?.getStringExtra("exclude")?.let { Excluded.set(this, it, true) } // tests
+        intent?.getStringExtra("include")?.let { Excluded.set(this, it, false) }
         goForeground()
         val gen = ++generation
         thread(name = "merge-start") { startMerging(gen) }
@@ -53,7 +55,7 @@ class MergeVpnService : VpnService() {
         val n = Notification.Builder(this, "merge")
             .setContentTitle("NetMerge is merging Wi-Fi and mobile data")
             .setContentText("Tap to see what each network carries")
-            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setSmallIcon(R.drawable.ic_merge)
             .setContentIntent(open)
             .addAction(Notification.Action.Builder(null, "Stop", stop).build())
             .setOngoing(true)
@@ -80,6 +82,10 @@ class MergeVpnService : VpnService() {
             .addDnsServer("1.1.1.1")
             .addDnsServer("8.8.8.8")
             .addDisallowedApplication(packageName)
+            .apply {
+                // apps the user left out of merging use the phone's normal network
+                for (pkg in Excluded.get(this@MergeVpnService)) runCatching { addDisallowedApplication(pkg) }
+            }
             .setUnderlyingNetworks(n.all().toTypedArray())
             .establish()
         if (pfd == null) {
@@ -118,7 +124,7 @@ class MergeVpnService : VpnService() {
                 val mobileNow = if (m == null) 0L else m.getLong("rx") + m.getLong("tx")
                 val used = if (mobileNow >= lastMobile) mobileNow - lastMobile else mobileNow // counters restart when mobile rejoins
                 lastMobile = mobileNow
-                if (n.network(DualNetworks.Kind.WIFI) != null) Usage.add(this, used)
+                if (n.usable(DualNetworks.Kind.WIFI)) Usage.add(this, used)
                 mobilePolicy(rate, n)
             }
         }
@@ -135,7 +141,7 @@ class MergeVpnService : VpnService() {
      * - otherwise: always.
      */
     private fun mobilePolicy(bytesPerSecond: Double, n: DualNetworks) {
-        val wifi = n.network(DualNetworks.Kind.WIFI) != null
+        val wifi = n.usable(DualNetworks.Kind.WIFI)
         val held = n.held(DualNetworks.Kind.MOBILE)
         val limit = Settings.limitMB(this).toLong() * 1_000_000
         overLimit = limit > 0 && Usage.mobileToday(this) >= limit
