@@ -8,7 +8,7 @@ adb shell svc data enable
 for i in $(seq 1 60); do d=$(adb shell dumpsys connectivity); w=$(echo "$d" | grep -c "ni{WIFI CONNECTED.*IS_VALIDATED"); m=$(echo "$d" | grep -c -E "ni\{MOBILE[^ ]* CONNECTED.*IS_VALIDATED"); [ "$w" -ge 1 ] && [ "$m" -ge 1 ] && break; [ $((i % 15)) -eq 0 ] && [ "$w" -lt 1 ] && adb shell svc wifi disable && sleep 2 && adb shell svc wifi enable; [ $((i % 10)) -eq 0 ] && [ "$m" -lt 1 ] && adb shell svc data disable && sleep 2 && adb shell svc data enable; sleep 3; done; echo "validated: wifi=$w mobile=$m after $i tries"
 if [ "$w" -lt 1 ] || [ "$m" -lt 1 ]; then echo "::warning::EMULATOR NETWORKS DID NOT COME UP (wifi=$w mobile=$m): app tests skipped on this emulator"; exit 0; fi
 adb shell dumpsys connectivity | grep -E "NetworkAgentInfo|Transports" | head -20 || true
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r app/build/outputs/apk/debug/app-universal-debug.apk
 adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 adb shell appops set dev.netmerge.android ACTIVATE_VPN allow
 adb shell pm grant dev.netmerge.android android.permission.POST_NOTIFICATIONS || true
@@ -55,7 +55,7 @@ adb shell am start -n dev.netmerge.android/.MainActivity; sleep 4; adb shell scr
 for f in screen-merging.png screen-off.png screen-block.png screen-settings.png screen-notification.png screen-welcome.png; do [ -f $f ] && { echo "BEGIN-$f"; base64 -w0 $f; echo; echo "END-$f"; }; done
 
 # the shrunk build for real phones: installs over the debug build, starts, and pages open through it
-adb install -r app/build/outputs/apk/release/app-release.apk || { echo "the release build did not install"; exit 1; }
+adb install -r app/build/outputs/apk/release/app-universal-release.apk || { echo "the release build did not install"; exit 1; }
 adb shell appops set dev.netmerge.android ACTIVATE_VPN allow
 adb shell run-as dev.netmerge.android rm -f files/events.log
 adb shell am start -S -n dev.netmerge.android/.MainActivity --ez merge true

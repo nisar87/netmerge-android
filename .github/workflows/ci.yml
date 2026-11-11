@@ -76,8 +76,9 @@ jobs:
         with:
           name: test-apks
           path: |
-            app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/apk/debug/app-universal-debug.apk
+            app/build/outputs/apk/release/app-universal-release.apk
+            app/build/outputs/apk/release/app-arm64-v8a-release.apk
             app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
             probe/build/outputs/apk/debug/probe-debug.apk
             probe/build/outputs/apk/androidTest/debug/probe-debug-androidTest.apk
@@ -103,4 +104,4 @@ jobs:
           gh release create test-build -R ${{ github.repository }} --prerelease --target ${{ github.sha }} \
             --title "Test build (not a release)" \
             --notes "Built from ${{ github.sha }} for testing on a real phone over USB. Not for daily use." \
-            app-release.apk app-debug.apk app-debug-androidTest.apk probe-debug.apk probe-debug-androidTest.apk
+            app-arm64-v8a-release.apk app-universal-release.apk app-universal-debug.apk app-debug-androidTest.apk probe-debug.apk probe-debug-androidTest.apk

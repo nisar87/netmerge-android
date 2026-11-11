@@ -42,6 +42,16 @@ android {
         }
     }
 
+    splits {
+        // one APK per processor type as well: the phone (arm64) gets only its own engine (about half the size)
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "x86_64")
+            isUniversalApk = true
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
