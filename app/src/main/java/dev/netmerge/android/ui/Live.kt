@@ -30,6 +30,10 @@ data class Live(
     val totalUp: Double = 0.0,
     val history: List<Double> = emptyList(), // download speed, last 60 s
     val upHistory: List<Double> = emptyList(), // upload speed, last 60 s
+    val netHistory: Map<String, List<Double>> = emptyMap(), // download speed per network, last 60 s
+    val peak: Double = 0.0,      // highest download speed since merging started (Mbps)
+    val sessionBytes: Long = 0,  // downloaded and uploaded since merging started
+    val runningSecs: Long = 0,   // how long merging has run
     val mobileToday: Long = 0,
     val overLimit: Boolean = false,
     val blockOn: Boolean = true,
@@ -51,6 +55,9 @@ class LiveReader(private val ctx: Context) {
     private val last = HashMap<String, Seen>()
     private val history = ArrayDeque<Double>()
     private val upHistory = ArrayDeque<Double>()
+    private val netHist = HashMap<String, ArrayDeque<Double>>()
+    private var peak = 0.0
+    private var session = 0L
 
     fun read(): Live {
         val running = MergeVpnService.running
@@ -86,7 +93,14 @@ class LiveReader(private val ctx: Context) {
             history.addLast(totalDown); upHistory.addLast(totalUp)
             while (history.size > 60) history.removeFirst()
             while (upHistory.size > 60) upHistory.removeFirst()
-        } else { history.clear(); upHistory.clear() }
+            for (name in listOf("wifi", "mobile")) {
+                val h = netHist.getOrPut(name) { ArrayDeque() }
+                h.addLast(downs[name] ?: 0.0)
+                while (h.size > 60) h.removeFirst()
+            }
+            if (totalDown > peak) peak = totalDown
+            session = last.values.sumOf { it.rx + it.tx }
+        } else { history.clear(); upHistory.clear(); netHist.clear(); peak = 0.0; session = 0 }
         val nets = listOf("wifi", "mobile").map { name ->
             val d = downs[name]
             val u = ups[name] ?: 0.0
@@ -98,6 +112,8 @@ class LiveReader(private val ctx: Context) {
         return Live(
             running = running, nets = nets, totalMbps = total, totalDown = totalDown, totalUp = totalUp,
             history = history.toList(), upHistory = upHistory.toList(),
+            netHistory = netHist.mapValues { it.value.toList() }, peak = peak, sessionBytes = session,
+            runningSecs = if (running && MergeVpnService.startedAt > 0) (now - MergeVpnService.startedAt) / 1000 else 0,
             mobileToday = Usage.mobileToday(ctx), overLimit = MergeVpnService.overLimit,
             blockOn = Blocklists.on(ctx), blockNames = b?.optInt("names") ?: 0,
             blocked = b?.optLong("blocked") ?: 0, asked = b?.optLong("asked") ?: 0, recent = recent,

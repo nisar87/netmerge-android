@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -33,52 +34,34 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun HomeScreen(live: Live, starting: Boolean, onToggle: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
+    val wifiColor = scheme.primary
+    val mobileColor = scheme.secondary
+    val on = live.running || starting || live.paused
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Spacer(Modifier.height(16.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("NetMerge", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
-            StatusChip(live, starting)
+            Column(Modifier.weight(1f)) {
+                Text("NetMerge", style = MaterialTheme.typography.headlineMedium)
+                Text(
+                    when {
+                        starting -> "Starting…"
+                        live.paused -> "Paused to save battery (${live.battery}%). Starts again at ${live.resumeAt}%."
+                        live.running -> "Wi-Fi and mobile data working together"
+                        live.nets.all { it.connected } -> "Wi-Fi and mobile data are ready"
+                        live.nets.none { it.connected } -> "No network"
+                        // mobile data asleep while on Wi-Fi (most phones): merging wakes it
+                        live.nets[0].connected && live.mobileDataOn -> "Ready: merging wakes mobile data"
+                        live.nets[0].connected -> "Turn on mobile data to merge"
+                        else -> "Connect to Wi-Fi to merge"
+                    },
+                    style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant,
+                )
+            }
+            MergeSwitch(on, starting, onToggle)
         }
-        Spacer(Modifier.height(28.dp))
-        PowerButton(on = live.running, busy = starting, onClick = onToggle)
-        Spacer(Modifier.height(20.dp))
-        // download is the big number (what people wait for); upload beside it, both always labelled
-        Row(verticalAlignment = Alignment.Bottom) {
-            Icon(Icons.Rounded.ArrowDownward, "Download", tint = scheme.primary, modifier = Modifier.padding(bottom = 14.dp).size(28.dp))
-            Text(
-                if (live.running) speedText(live.totalDown) else "—",
-                style = MaterialTheme.typography.displayLarge.merge(Numbers),
-            )
-            Text(" Mbps", style = MaterialTheme.typography.titleMedium, color = scheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 10.dp))
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Download", style = MaterialTheme.typography.labelLarge, color = scheme.primary)
-            Spacer(Modifier.width(16.dp))
-            Icon(Icons.Rounded.ArrowUpward, "Upload", tint = Brand.Amber, modifier = Modifier.size(16.dp))
-            Text(
-                (if (live.running) speedText(live.totalUp) else "—") + " Mbps upload",
-                style = MaterialTheme.typography.labelLarge.merge(Numbers), color = Brand.Amber,
-            )
-        }
-        Spacer(Modifier.height(6.dp))
-        Text(
-            when {
-                starting -> "Starting…"
-                live.paused -> "Paused to save battery (${live.battery}%). Starts again at ${live.resumeAt}%."
-                live.running -> "Both networks working together"
-                live.nets.all { it.connected } -> "Wi-Fi and mobile data are ready"
-                live.nets.none { it.connected } -> "No network"
-                // mobile data asleep while on Wi-Fi (most phones): merging wakes it
-                live.nets[0].connected && live.mobileDataOn -> "Ready: merging wakes mobile data"
-                live.nets[0].connected -> "Turn on mobile data to merge"
-                else -> "Connect to Wi-Fi to merge"
-            },
-            style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant,
-        )
         live.problem?.let { msg ->
             Spacer(Modifier.height(12.dp))
             Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = scheme.errorContainer)) {
@@ -89,77 +72,109 @@ fun HomeScreen(live: Live, starting: Boolean, onToggle: () -> Unit) {
                 }
             }
         }
-        Spacer(Modifier.height(16.dp))
-        Sparkline(live.history, live.upHistory, Modifier.fillMaxWidth().height(56.dp))
-        Spacer(Modifier.height(16.dp))
-        for (n in live.nets) {
-            NetworkCard(n, live.running, n.name == "mobile" && live.mobileDataOn)
+        Spacer(Modifier.height(14.dp))
+        // the dial: combined download, the inner ring split by what each network carries
+        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = scheme.surfaceContainer)) {
+            Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                val max = gaugeMax(maxOf(live.peak, live.totalDown, 8.0))
+                DialGauge(
+                    mbps = if (live.running) live.totalDown else null, max = max,
+                    segments = if (live.running) listOf(Segment(live.nets[0].part.toFloat(), wifiColor), Segment(live.nets[1].part.toFloat(), mobileColor)) else emptyList(),
+                    needle = scheme.onSurface, modifier = Modifier.fillMaxWidth(0.92f),
+                )
+                Text(
+                    when {
+                        starting -> "Starting"
+                        live.paused -> "Paused"
+                        !live.running -> "Off"
+                        live.totalMbps < 0.1 -> "Idle"
+                        live.totalUp > live.totalDown -> "Uploading"
+                        else -> "Downloading"
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text("scale 0–${max.toInt()} Mbps", style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+                if (!on) {
+                    Spacer(Modifier.height(12.dp))
+                    Button(onClick = onToggle, modifier = Modifier.fillMaxWidth(0.8f).height(52.dp)) {
+                        Icon(Icons.Rounded.PowerSettingsNew, null); Spacer(Modifier.width(8.dp))
+                        Text("Start merging", style = MaterialTheme.typography.titleMedium)
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        // the numbers, two to a row
+        val tiles = listOf(
+            Triple(Icons.Rounded.ArrowUpward, "Upload", (if (live.running) speedText(live.totalUp) else "—") to "Mbps · combined, right now"),
+            Triple(Icons.Rounded.Speed, "Peak speed", (if (live.running) speedText(live.peak) else "—") to "Mbps · since merging started"),
+            Triple(Icons.Rounded.Download, "Downloaded", (if (live.running) mbText(live.sessionBytes) else "—") to "all networks, since merging started"),
+            Triple(Icons.Rounded.Schedule, "Running for", (if (live.running) durationText(live.runningSecs) else "—") to "${live.nets.count { it.inMerge }} of 2 networks in use"),
+            Triple(Icons.Rounded.DataUsage, "Mobile data today", mbText(live.mobileToday) to (if (live.overLimit) "daily limit reached" else "used by merging")),
+            Triple(Icons.Rounded.Shield, "Ads blocked today", (if (live.blockOn) "%,d".format(live.blockedToday) else "Off") to "ads & trackers"),
+        )
+        for (pair in tiles.chunked(2)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                for ((icon, label, value) in pair) StatTile(icon, label, value.first, value.second, Modifier.weight(1f))
+            }
             Spacer(Modifier.height(12.dp))
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            MiniStat(Icons.Rounded.DataUsage, "Mobile data by merging today",
-                mbText(live.mobileToday) + if (live.overLimit) " · limit reached" else "", Modifier.weight(1f))
-            MiniStat(Icons.Rounded.Shield, "Ads & trackers blocked today",
-                if (live.blockOn) "%,d".format(live.blockedToday) else "Off", Modifier.weight(1f))
+        Text("Your networks", style = MaterialTheme.typography.titleMedium, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+        Text("Live speed of each network, last 60 seconds", style = MaterialTheme.typography.bodySmall,
+            color = scheme.onSurfaceVariant, modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp))
+        for (n in live.nets) {
+            NetworkCard(n, live.running, n.name == "mobile" && live.mobileDataOn, live.netHistory[n.name] ?: emptyList(),
+                if (n.name == "wifi") wifiColor else mobileColor)
+            Spacer(Modifier.height(12.dp))
         }
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(12.dp))
     }
 }
 
+fun durationText(s: Long): String = when {
+    s < 60 -> "${s}s"
+    s < 3600 -> "${s / 60}m ${s % 60}s"
+    else -> "${s / 3600}h ${s % 3600 / 60}m"
+}
+
+/** The merging switch, as on the desktop app: a pill with the state and a switch. */
 @Composable
-private fun StatusChip(live: Live, starting: Boolean) {
-    val (label, color) = when {
-        starting -> "Starting" to Brand.Amber
-        live.paused -> "Paused" to Brand.Amber
-        live.running -> "On" to Brand.Teal
-        else -> "Off" to MaterialTheme.colorScheme.outline
-    }
+private fun MergeSwitch(on: Boolean, busy: Boolean, onToggle: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val bg by animateColorAsState(if (on) Brand.Teal.copy(alpha = 0.16f) else scheme.surfaceContainerHigh, tween(300), label = "pill")
     Row(
-        Modifier.clip(RoundedCornerShape(50)).background(color.copy(alpha = 0.15f)).padding(horizontal = 12.dp, vertical = 6.dp),
+        Modifier.clip(RoundedCornerShape(50)).background(bg).clickable(onClick = onToggle).padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 4.dp)
+            .semantics { contentDescription = if (on) "Stop merging" else "Start merging" },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(8.dp).clip(CircleShape).background(color))
-        Spacer(Modifier.width(6.dp))
-        Text(label, style = MaterialTheme.typography.labelLarge, color = color)
+        Text(if (busy) "Starting" else if (on) "Merging on" else "Merging off", style = MaterialTheme.typography.labelLarge,
+            color = if (on) scheme.secondary else scheme.onSurfaceVariant)
+        Spacer(Modifier.width(8.dp))
+        Switch(checked = on, onCheckedChange = { onToggle() },
+            colors = SwitchDefaults.colors(checkedTrackColor = scheme.secondary, checkedThumbColor = scheme.onSecondary))
     }
 }
 
 @Composable
-private fun PowerButton(on: Boolean, busy: Boolean, onClick: () -> Unit) {
+private fun StatTile(icon: ImageVector, label: String, value: String, caption: String, modifier: Modifier) {
     val scheme = MaterialTheme.colorScheme
-    val fill by animateColorAsState(if (on) scheme.primary else scheme.surfaceContainerHighest, tween(400), label = "fill")
-    val icon by animateColorAsState(if (on) scheme.onPrimary else scheme.onSurfaceVariant, tween(400), label = "icon")
-    val pulse = rememberInfiniteTransition(label = "pulse")
-    val ring by pulse.animateFloat(1f, 1.18f, infiniteRepeatable(tween(1600, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "ring")
-    val spin by pulse.animateFloat(0f, 360f, infiniteRepeatable(tween(1200, easing = LinearEasing)), label = "spin")
-    Box(Modifier.size(220.dp), contentAlignment = Alignment.Center) {
-        if (on) {
-            Box(Modifier.size(170.dp).scale(ring).clip(CircleShape).background(scheme.primary.copy(alpha = 0.12f)))
-            Box(Modifier.size(170.dp).scale(1f + (ring - 1f) / 2).clip(CircleShape).background(scheme.primary.copy(alpha = 0.10f)))
-        }
-        if (busy) {
-            Canvas(Modifier.size(184.dp)) {
-                drawArc(Brand.Amber, spin, 90f, false, style = Stroke(5.dp.toPx(), cap = StrokeCap.Round))
+    Card(modifier, shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = scheme.surfaceContainer)) {
+        Column(Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, null, tint = scheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(label, style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant)
             }
-        }
-        Box(
-            Modifier.size(164.dp).clip(CircleShape)
-                .background(Brush.radialGradient(listOf(fill.copy(alpha = 0.92f), fill)))
-                .clickable(onClick = onClick)
-                .semantics { contentDescription = if (on) "Stop merging" else "Start merging" },
-            contentAlignment = Alignment.Center,
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(Icons.Rounded.PowerSettingsNew, null, tint = icon, modifier = Modifier.size(56.dp))
-                Text(if (on) "Merging" else "Tap to merge", color = icon, style = MaterialTheme.typography.labelLarge)
-            }
+            Spacer(Modifier.height(6.dp))
+            Text(value, style = MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Monospace), maxLines = 1)
+            Text(caption, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant, lineHeight = 15.sp, maxLines = 2)
         }
     }
 }
 
 @Composable
-private fun Sparkline(points: List<Double>, upPoints: List<Double>, modifier: Modifier) {
-    val line = MaterialTheme.colorScheme.primary
+private fun Sparkline(points: List<Double>, upPoints: List<Double>, modifier: Modifier, line: Color = MaterialTheme.colorScheme.primary) {
     Canvas(modifier) {
         if (points.size < 2) return@Canvas
         val max = maxOf(points.maxOrNull() ?: 0.0, upPoints.maxOrNull() ?: 0.0).coerceAtLeast(1.0)
@@ -190,52 +205,61 @@ private fun Sparkline(points: List<Double>, upPoints: List<Double>, modifier: Mo
 }
 
 @Composable
-private fun NetworkCard(n: NetLive, running: Boolean, onButAsleep: Boolean) {
+private fun NetworkCard(n: NetLive, running: Boolean, onButAsleep: Boolean, history: List<Double>, color: Color) {
     val scheme = MaterialTheme.colorScheme
-    val color = if (n.name == "wifi") scheme.primary else scheme.secondary
     val part by animateFloatAsState(n.part.toFloat(), tween(700), label = "part")
     Card(
         Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = scheme.surfaceContainer),
     ) {
+        Box(Modifier.fillMaxWidth().height(3.dp).background(if (n.connected) color else scheme.outlineVariant))
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(color.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) {
-                    Icon(if (n.name == "wifi") Icons.Rounded.Wifi else Icons.Rounded.SignalCellularAlt, null, tint = color)
+                Box(Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(color.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) {
+                    Icon(if (n.name == "wifi") Icons.Rounded.Wifi else Icons.Rounded.SignalCellularAlt, null, tint = color, modifier = Modifier.size(20.dp))
                 }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(if (n.name == "wifi") "Wi-Fi" else "Mobile data", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        when {
-                            !n.connected && onButAsleep -> "On, asleep while Wi-Fi is used"
-                            !n.connected -> "Not connected"
-                            !running -> "Connected"
-                            !n.inMerge -> "Connected, not in use"
-                            else -> "${(n.share * 100).toInt()}% of new connections"
-                        },
-                        style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant,
-                    )
+                Spacer(Modifier.width(10.dp))
+                Text(if (n.name == "wifi") "Wi-Fi" else "Mobile data", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                val (label, dot) = when {
+                    !n.connected && onButAsleep -> "Asleep" to scheme.outline
+                    !n.connected -> "Not connected" to scheme.error
+                    !running -> "Online" to color
+                    !n.inMerge -> "Online · not in use" to scheme.outline
+                    n.mbps < 0.1 -> "Online · idle" to color
+                    else -> "Merging" to color
                 }
-                if (running && n.inMerge) {
-                    Column(horizontalAlignment = Alignment.End) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.ArrowDownward, "Download", tint = color, modifier = Modifier.size(16.dp))
-                            Text(speedText(n.down), style = MaterialTheme.typography.titleLarge.merge(Numbers))
-                            Text(" Mbps", style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.ArrowUpward, "Upload", tint = Brand.Amber, modifier = Modifier.size(13.dp))
-                            Text(speedText(n.up) + " Mbps", style = MaterialTheme.typography.bodySmall.merge(Numbers), color = scheme.onSurfaceVariant)
-                        }
-                    }
+                Row(Modifier.clip(RoundedCornerShape(50)).background(dot.copy(alpha = 0.12f)).padding(horizontal = 10.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(7.dp).clip(CircleShape).background(dot))
+                    Spacer(Modifier.width(6.dp))
+                    Text(label, style = MaterialTheme.typography.labelMedium, color = dot)
                 }
             }
-            if (running) {
-                Spacer(Modifier.height(12.dp))
+            if (!n.connected && onButAsleep) {
+                Text("Mobile data is on; the phone keeps it asleep while Wi-Fi is used. Merging wakes it.",
+                    style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
+            }
+            if (running && n.inMerge) {
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(speedText(n.down), style = MaterialTheme.typography.headlineMedium.copy(fontFamily = FontFamily.Monospace))
+                    Text(" Mbps", style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 4.dp))
+                    Spacer(Modifier.weight(1f))
+                    Icon(Icons.Rounded.ArrowUpward, "Upload", tint = scheme.onSurfaceVariant, modifier = Modifier.size(14.dp).padding(bottom = 2.dp))
+                    Text(speedText(n.up) + " Mbps", style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        color = scheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 4.dp))
+                }
+                Spacer(Modifier.height(6.dp))
+                Sparkline(history, emptyList(), Modifier.fillMaxWidth().height(44.dp), color)
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Share of traffic", style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    Text("${(n.part * 100).toInt()}%", style = MaterialTheme.typography.labelLarge.copy(fontFamily = FontFamily.Monospace))
+                }
+                Spacer(Modifier.height(6.dp))
                 LinearProgressIndicator(
-                    progress = { part }, modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+                    progress = { part }, modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
                     color = color, trackColor = scheme.surfaceVariant, drawStopIndicator = {},
                 )
             }
@@ -243,15 +267,3 @@ private fun NetworkCard(n: NetLive, running: Boolean, onButAsleep: Boolean) {
     }
 }
 
-@Composable
-private fun MiniStat(icon: ImageVector, label: String, value: String, modifier: Modifier) {
-    val scheme = MaterialTheme.colorScheme
-    Card(modifier, shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = scheme.surfaceContainer)) {
-        Column(Modifier.padding(16.dp)) {
-            Icon(icon, null, tint = scheme.primary, modifier = Modifier.size(22.dp))
-            Spacer(Modifier.height(10.dp))
-            Text(value, style = MaterialTheme.typography.titleLarge.merge(Numbers), fontWeight = FontWeight.SemiBold)
-            Text(label, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant, lineHeight = 16.sp)
-        }
-    }
-}

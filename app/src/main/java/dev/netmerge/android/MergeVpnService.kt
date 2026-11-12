@@ -233,6 +233,7 @@ class MergeVpnService : VpnService() {
             return
         }
         running = true
+        if (startedAt == 0L) startedAt = SystemClock.elapsedRealtime()
         retried = false
         problem = null
         thread(name = "blocklists") {
@@ -365,6 +366,7 @@ class MergeVpnService : VpnService() {
         unwatchBattery()
         runCatching { mobile.Mobile.stop() } // always: an engine of a start that had not finished must not be left running
         running = false
+        startedAt = 0
         MergeTileService.update(this)
         nets?.stop()
         nets = null
@@ -416,6 +418,8 @@ class MergeVpnService : VpnService() {
         private const val BUSY = 1_000_000.0 // bytes per second for 4 s: merging can help, bring mobile data up
         private const val QUIET = 100_000.0 // bytes per second for a minute: nothing to gain, let mobile data go
         @Volatile var running = false
+        /** When merging started (elapsedRealtime; 0 while off), for "running for" on the screen. */
+        @Volatile var startedAt = 0L
         /** Why merging stopped by itself, for the screen (null: nothing to say). */
         @Volatile var problem: String? = null
     }

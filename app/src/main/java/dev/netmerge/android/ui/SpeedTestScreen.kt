@@ -79,16 +79,18 @@ fun SpeedTestScreen(merging: Boolean) {
         )
         Spacer(Modifier.height(12.dp))
         val color = if (s.upload) Brand.Amber else scheme.primary
-        Gauge(
-            mbps = if (s.running) s.now else (s.rows.lastOrNull()?.down ?: 0.0),
-            max = max,
-            caption = when {
-                s.running && s.upload -> "upload"
-                s.running -> "download"
-                s.rows.isNotEmpty() -> s.rows.last().label + " download"
-                else -> "ready"
+        val shown = if (s.running) s.now else (s.rows.lastOrNull()?.down ?: 0.0)
+        DialGauge(
+            mbps = if (s.running || s.rows.isNotEmpty()) shown else null, max = max,
+            segments = if (s.running || s.rows.isNotEmpty()) listOf(Segment(1f, color)) else emptyList(),
+            needle = scheme.onSurface, modifier = Modifier.fillMaxWidth(0.9f),
+            eyebrow = when {
+                s.running && s.upload -> "UPLOAD"
+                s.running -> "DOWNLOAD"
+                s.rows.isNotEmpty() -> s.rows.last().label.uppercase()
+                else -> "READY"
             },
-            color = color, modifier = Modifier.fillMaxWidth(0.9f),
+            unit = if (s.running && s.upload) "Mbps up" else "Mbps down",
         )
         Spacer(Modifier.height(4.dp))
         if (s.running) {
