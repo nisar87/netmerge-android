@@ -24,7 +24,8 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /** The scale's top: the smallest of these that leaves the needle some room. */
-private val scales = listOf(10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0)
+// tops that divide into four round quarters (2.5, 5, 7.5, 10 / 25, 50, 75, 100 / ...)
+private val scales = listOf(10.0, 20.0, 40.0, 100.0, 200.0, 400.0, 1000.0, 2000.0, 4000.0)
 fun gaugeMax(mbps: Double): Double = scales.firstOrNull { it >= mbps * 1.15 } ?: scales.last()
 
 /**

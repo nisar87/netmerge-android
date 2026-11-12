@@ -87,7 +87,7 @@ fun SpeedTestScreen(merging: Boolean) {
             eyebrow = when {
                 s.running && s.upload -> "UPLOAD"
                 s.running -> "DOWNLOAD"
-                s.rows.isNotEmpty() -> s.rows.last().label.uppercase()
+                s.rows.isNotEmpty() -> when (s.rows.last().label) { "Both together" -> "MERGED"; "Mobile data" -> "MOBILE"; else -> "WI-FI" }
                 else -> "READY"
             },
             unit = if (s.running && s.upload) "Mbps up" else "Mbps down",
