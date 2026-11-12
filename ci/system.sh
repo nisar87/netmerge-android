@@ -4,7 +4,7 @@
 ev() { adb shell run-as dev.netmerge.android cat files/events.log 2>/dev/null; }
 tun() { adb shell ip addr 2>/dev/null | grep -q "10.111.0.2"; }
 pages() { adb shell am instrument -w -r -e class dev.netmerge.probe.ProbeTest#pagesOpen dev.netmerge.probe.test/androidx.test.runner.AndroidJUnitRunner | grep -q "^OK ("; }
-fail() { echo "$1"; ev | grep -v -e stats -e networks | tail -8 | cut -c1-160; exit 1; }
+fail() { echo "$1"; ev | grep -v -e stats -e networks | tail -8 | cut -c1-160; adb logcat -d | grep -i -E "MergeTile|netmerge|ForegroundService|TileService" | tail -30 | cut -c1-240; exit 1; }
 adb shell am start -n dev.netmerge.android/.MainActivity --ez merge false; sleep 3
 # the tile (added for the test, removed after)
 adb shell cmd statusbar add-tile dev.netmerge.android/.MergeTileService; sleep 2

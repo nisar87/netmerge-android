@@ -17,12 +17,13 @@ class MergeTileService : TileService() {
 
     override fun onClick() {
         super.onClick()
+        note("tile: clicked, running=${MergeVpnService.running}, prepared=${VpnService.prepare(this) == null}")
         if (MergeVpnService.running) {
             startService(Intent(this, MergeVpnService::class.java).setAction(MergeVpnService.ACTION_STOP))
         } else if (VpnService.prepare(this) == null && runCatching {
                 startForegroundService(Intent(this, MergeVpnService::class.java))
-            }.isSuccess) {
-            // started from the tile
+            }.onFailure { note("tile: could not start the service: $it") }.isSuccess) {
+            note("tile: service asked to start")
         } else {
             // Android must ask once whether NetMerge may run a VPN, or (newer Android) does not let a tile start a
             // foreground service while the app is in the background: the app's screen starts it then. Seen on a
@@ -35,6 +36,12 @@ class MergeTileService : TileService() {
                 startActivityAndCollapse(i)
             }
         }
+    }
+
+    /** Into the same events file as the service (tests read it). */
+    private fun note(what: String) {
+        android.util.Log.i("NetMergeSpike", what)
+        runCatching { java.io.File(filesDir, "events.log").appendText("${System.currentTimeMillis()} $what\n") }
     }
 
     private fun show() {
