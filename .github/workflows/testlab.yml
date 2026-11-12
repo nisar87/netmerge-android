@@ -11,6 +11,8 @@ on:
         default: test-build-branch
   schedule:
     - cron: "17 21 * * 0" # Sunday night (Pakistan Monday 02:17)
+  push:
+    paths: [".github/testlab-run"] # a change to this file runs it from any branch (a manual run needs the workflow on main)
 permissions:
   contents: read
   id-token: write # GitHub proves who it is to Google (no key file)
@@ -19,6 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
+      - uses: actions/checkout@v4
       - uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: projects/940996643435/locations/global/workloadIdentityPools/github/providers/netmerge-android
@@ -28,7 +31,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          B="${{ github.event.inputs.build || 'test-build' }}"
+          B="${{ github.event.inputs.build }}"
+          [ -n "$B" ] || { [ "${{ github.event_name }}" = push ] && B=$(head -1 .github/testlab-run 2>/dev/null); }
+          [ -n "$B" ] || B=test-build
           gh release download "$B" -R ${{ github.repository }} -p 'app-universal-release.apk' -p 'probe-debug.apk' -p 'probe-debug-androidTest.apk'
           gh release view "$B" -R ${{ github.repository }} --json body -q .body
           ls -la *.apk
