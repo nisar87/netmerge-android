@@ -45,14 +45,26 @@ fun HomeScreen(live: Live, starting: Boolean, onToggle: () -> Unit) {
         Spacer(Modifier.height(28.dp))
         PowerButton(on = live.running, busy = starting, onClick = onToggle)
         Spacer(Modifier.height(20.dp))
+        // download is the big number (what people wait for); upload beside it, both always labelled
         Row(verticalAlignment = Alignment.Bottom) {
+            Icon(Icons.Rounded.ArrowDownward, "Download", tint = scheme.primary, modifier = Modifier.padding(bottom = 14.dp).size(28.dp))
             Text(
-                if (live.running) speedText(live.totalMbps) else "—",
+                if (live.running) speedText(live.totalDown) else "—",
                 style = MaterialTheme.typography.displayLarge.merge(Numbers),
             )
             Text(" Mbps", style = MaterialTheme.typography.titleMedium, color = scheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 10.dp))
         }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Download", style = MaterialTheme.typography.labelLarge, color = scheme.primary)
+            Spacer(Modifier.width(16.dp))
+            Icon(Icons.Rounded.ArrowUpward, "Upload", tint = Brand.Amber, modifier = Modifier.size(16.dp))
+            Text(
+                (if (live.running) speedText(live.totalUp) else "—") + " Mbps upload",
+                style = MaterialTheme.typography.labelLarge.merge(Numbers), color = Brand.Amber,
+            )
+        }
+        Spacer(Modifier.height(6.dp))
         Text(
             when {
                 starting -> "Starting…"
@@ -60,7 +72,10 @@ fun HomeScreen(live: Live, starting: Boolean, onToggle: () -> Unit) {
                 live.running -> "Both networks working together"
                 live.nets.all { it.connected } -> "Wi-Fi and mobile data are ready"
                 live.nets.none { it.connected } -> "No network"
-                else -> "Turn on both Wi-Fi and mobile data to merge"
+                // mobile data asleep while on Wi-Fi (most phones): merging wakes it
+                live.nets[0].connected && live.mobileDataOn -> "Ready: merging wakes mobile data"
+                live.nets[0].connected -> "Turn on mobile data to merge"
+                else -> "Connect to Wi-Fi to merge"
             },
             style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant,
         )
@@ -75,10 +90,10 @@ fun HomeScreen(live: Live, starting: Boolean, onToggle: () -> Unit) {
             }
         }
         Spacer(Modifier.height(16.dp))
-        Sparkline(live.history, Modifier.fillMaxWidth().height(56.dp))
+        Sparkline(live.history, live.upHistory, Modifier.fillMaxWidth().height(56.dp))
         Spacer(Modifier.height(16.dp))
         for (n in live.nets) {
-            NetworkCard(n, live.running)
+            NetworkCard(n, live.running, n.name == "mobile" && live.mobileDataOn)
             Spacer(Modifier.height(12.dp))
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -143,11 +158,23 @@ private fun PowerButton(on: Boolean, busy: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun Sparkline(points: List<Double>, modifier: Modifier) {
+private fun Sparkline(points: List<Double>, upPoints: List<Double>, modifier: Modifier) {
     val line = MaterialTheme.colorScheme.primary
     Canvas(modifier) {
         if (points.size < 2) return@Canvas
-        val max = (points.maxOrNull() ?: 0.0).coerceAtLeast(1.0)
+        val max = maxOf(points.maxOrNull() ?: 0.0, upPoints.maxOrNull() ?: 0.0).coerceAtLeast(1.0)
+        // upload: a thin amber line under the download's filled one
+        if (upPoints.size >= 2) {
+            val stepU = size.width / 59f
+            val u0 = size.width - stepU * (upPoints.size - 1)
+            val up = Path()
+            upPoints.forEachIndexed { i, v ->
+                val x = u0 + i * stepU
+                val y = size.height - (v / max * size.height * 0.9).toFloat() - 2f
+                if (i == 0) up.moveTo(x, y) else up.lineTo(x, y)
+            }
+            drawPath(up, Brand.Amber, style = Stroke(1.5.dp.toPx(), cap = StrokeCap.Round))
+        }
         val stepX = size.width / 59f
         val x0 = size.width - stepX * (points.size - 1)
         val path = Path()
@@ -163,7 +190,7 @@ private fun Sparkline(points: List<Double>, modifier: Modifier) {
 }
 
 @Composable
-private fun NetworkCard(n: NetLive, running: Boolean) {
+private fun NetworkCard(n: NetLive, running: Boolean, onButAsleep: Boolean) {
     val scheme = MaterialTheme.colorScheme
     val color = if (n.name == "wifi") scheme.primary else scheme.secondary
     val part by animateFloatAsState(n.part.toFloat(), tween(700), label = "part")
@@ -182,6 +209,7 @@ private fun NetworkCard(n: NetLive, running: Boolean) {
                     Text(if (n.name == "wifi") "Wi-Fi" else "Mobile data", style = MaterialTheme.typography.titleMedium)
                     Text(
                         when {
+                            !n.connected && onButAsleep -> "On, asleep while Wi-Fi is used"
                             !n.connected -> "Not connected"
                             !running -> "Connected"
                             !n.inMerge -> "Connected, not in use"
@@ -191,8 +219,17 @@ private fun NetworkCard(n: NetLive, running: Boolean) {
                     )
                 }
                 if (running && n.inMerge) {
-                    Text(speedText(n.mbps), style = MaterialTheme.typography.titleLarge.merge(Numbers))
-                    Text(" Mbps", style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+                    Column(horizontalAlignment = Alignment.End) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Rounded.ArrowDownward, "Download", tint = color, modifier = Modifier.size(16.dp))
+                            Text(speedText(n.down), style = MaterialTheme.typography.titleLarge.merge(Numbers))
+                            Text(" Mbps", style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Rounded.ArrowUpward, "Upload", tint = Brand.Amber, modifier = Modifier.size(13.dp))
+                            Text(speedText(n.up) + " Mbps", style = MaterialTheme.typography.bodySmall.merge(Numbers), color = scheme.onSurfaceVariant)
+                        }
+                    }
                 }
             }
             if (running) {

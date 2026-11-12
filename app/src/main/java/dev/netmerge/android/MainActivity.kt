@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Shield
+import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateList
@@ -43,6 +44,8 @@ class MainActivity : ComponentActivity() {
     private val pending = mutableStateListOf<Intent>() // in order: a stop and a start sent together both count
     /** A tab asked for from outside ("home", "block", "settings"; used for screenshots). */
     private val tabRequest = mutableStateOf<String?>(null)
+    /** A speed test asked for from outside (test scripts: --ez speedtest true; result in files/speedtest.json). */
+    private val speedTest = mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -50,7 +53,8 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= 33) requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), 3)
         if (savedInstanceState == null && intent.hasExtra("merge")) pending += Intent(intent)
         tabRequest.value = intent.getStringExtra("tab")
-        setContent { NetMergeTheme { App(pending, tabRequest) } }
+        if (intent.getBooleanExtra("speedtest", false)) { tabRequest.value = "test"; speedTest.value = true }
+        setContent { NetMergeTheme { App(pending, tabRequest, speedTest) } }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -58,15 +62,16 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         if (intent.hasExtra("merge")) pending += Intent(intent)
         intent.getStringExtra("tab")?.let { tabRequest.value = it }
+        if (intent.getBooleanExtra("speedtest", false)) { tabRequest.value = "test"; speedTest.value = true }
     }
 }
 
 private enum class Tab(val label: String, val icon: ImageVector) {
-    Home("Home", Icons.Rounded.Home), Block("Ad blocking", Icons.Rounded.Shield), Settings("Settings", Icons.Rounded.Settings)
+    Home("Home", Icons.Rounded.Home), Test("Speed test", Icons.Rounded.Speed), Block("Ad blocking", Icons.Rounded.Shield), Settings("Settings", Icons.Rounded.Settings)
 }
 
 @Composable
-private fun App(pending: SnapshotStateList<Intent>, tabRequest: MutableState<String?>) {
+private fun App(pending: SnapshotStateList<Intent>, tabRequest: MutableState<String?>, speedTest: MutableState<Boolean>) {
     val ctx = LocalContext.current
     val reader = remember { LiveReader(ctx) }
     var live by remember { mutableStateOf(Live()) }
@@ -114,8 +119,11 @@ private fun App(pending: SnapshotStateList<Intent>, tabRequest: MutableState<Str
     }
 
     LaunchedEffect(tabRequest.value) {
-        when (tabRequest.value) { "home" -> tab = Tab.Home; "block" -> tab = Tab.Block; "settings" -> tab = Tab.Settings }
+        when (tabRequest.value) { "home" -> tab = Tab.Home; "test" -> tab = Tab.Test; "block" -> tab = Tab.Block; "settings" -> tab = Tab.Settings }
         tabRequest.value = null
+    }
+    LaunchedEffect(speedTest.value) {
+        if (speedTest.value) { speedTest.value = false; runSpeedTest(ctx) }
     }
     // the first start shows a short welcome (tests skip it: they start with an extra)
     val prefs = remember { ctx.getSharedPreferences("settings", android.content.Context.MODE_PRIVATE) }
@@ -145,6 +153,7 @@ private fun App(pending: SnapshotStateList<Intent>, tabRequest: MutableState<Str
                 AnimatedContent(tab, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "tab") { t ->
                     when (t) {
                         Tab.Home -> HomeScreen(live, starting) { if (live.running || live.paused) stop() else start(null) }
+                        Tab.Test -> SpeedTestScreen(live.running)
                         Tab.Block -> BlockingScreen(live)
                         Tab.Settings -> SettingsScreen(live, openApps = { appsOpen = true })
                     }

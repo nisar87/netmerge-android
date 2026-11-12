@@ -14,17 +14,22 @@ data class NetLive(
     val name: String,       // "wifi" / "mobile"
     val connected: Boolean, // up on the phone
     val inMerge: Boolean,   // carrying merged traffic now
-    val mbps: Double,       // speed right now
+    val mbps: Double,       // speed right now, download and upload together
     val part: Double,       // part of the traffic right now (0..1)
     val share: Double,      // part of new connections it gets
+    val down: Double,       // download speed right now (Mbps)
+    val up: Double,         // upload speed right now (Mbps)
 )
 
 /** Everything the screen shows, read once a second. */
 data class Live(
     val running: Boolean = false,
-    val nets: List<NetLive> = listOf(NetLive("wifi", false, false, 0.0, 0.0, 0.0), NetLive("mobile", false, false, 0.0, 0.0, 0.0)),
+    val nets: List<NetLive> = listOf(NetLive("wifi", false, false, 0.0, 0.0, 0.0, 0.0, 0.0), NetLive("mobile", false, false, 0.0, 0.0, 0.0, 0.0, 0.0)),
     val totalMbps: Double = 0.0,
-    val history: List<Double> = emptyList(), // total speed, last 60 s
+    val totalDown: Double = 0.0,
+    val totalUp: Double = 0.0,
+    val history: List<Double> = emptyList(), // download speed, last 60 s
+    val upHistory: List<Double> = emptyList(), // upload speed, last 60 s
     val mobileToday: Long = 0,
     val overLimit: Boolean = false,
     val blockOn: Boolean = true,
@@ -34,6 +39,7 @@ data class Live(
     val recent: List<Pair<String, Int>> = emptyList(), // name, times
     val blockedToday: Long = 0,
     val problem: String? = null, // why merging stopped by itself
+    val mobileDataOn: Boolean = true, // mobile data switched on in the phone's settings (it may still be asleep on Wi-Fi)
     val paused: Boolean = false, // paused until the battery charges back
     val battery: Int = -1,       // battery level when paused
     val resumeAt: Int = 0,       // the level merging starts again at
@@ -41,14 +47,17 @@ data class Live(
 
 /** Reads the engine every second and works out speeds from its byte counters. */
 class LiveReader(private val ctx: Context) {
-    private val last = HashMap<String, Pair<Long, Long>>()
+    private class Seen(val rx: Long, val tx: Long, val at: Long)
+    private val last = HashMap<String, Seen>()
     private val history = ArrayDeque<Double>()
+    private val upHistory = ArrayDeque<Double>()
 
     fun read(): Live {
         val running = MergeVpnService.running
         val up = upNow(ctx)
         val now = SystemClock.elapsedRealtime()
-        val speeds = HashMap<String, Double>()
+        val downs = HashMap<String, Double>()
+        val ups = HashMap<String, Double>()
         val shares = HashMap<String, Double>()
         if (running) {
             val stats = runCatching { JSONObject(mobile.Mobile.stats()) }.getOrNull()
@@ -56,39 +65,56 @@ class LiveReader(private val ctx: Context) {
             for (i in 0 until (nets?.length() ?: 0)) {
                 val n = nets!!.getJSONObject(i)
                 val name = n.getString("name")
-                val rx = n.getLong("rx") + n.getLong("tx")
+                // rx: what came in on this network (downloads), tx: what went out (uploads)
+                val rx = n.getLong("rx")
+                val tx = n.getLong("tx")
                 val prev = last[name]
-                speeds[name] = if (prev != null && now > prev.second && rx >= prev.first)
-                    (rx - prev.first) * 8.0 / ((now - prev.second) / 1000.0) / 1e6 else 0.0
-                last[name] = rx to now
+                val ok = prev != null && now > prev.at && rx >= prev.rx && tx >= prev.tx
+                val secs = if (prev != null) (now - prev.at) / 1000.0 else 1.0
+                downs[name] = if (ok) (rx - prev!!.rx) * 8.0 / secs / 1e6 else 0.0
+                ups[name] = if (ok) (tx - prev!!.tx) * 8.0 / secs / 1e6 else 0.0
+                last[name] = Seen(rx, tx, now)
                 shares[name] = n.optDouble("share", 0.0)
             }
         } else {
             last.clear()
         }
-        val total = speeds.values.sum()
+        val totalDown = downs.values.sum()
+        val totalUp = ups.values.sum()
+        val total = totalDown + totalUp
         if (running) {
-            history.addLast(total)
+            history.addLast(totalDown); upHistory.addLast(totalUp)
             while (history.size > 60) history.removeFirst()
-        } else history.clear()
+            while (upHistory.size > 60) upHistory.removeFirst()
+        } else { history.clear(); upHistory.clear() }
         val nets = listOf("wifi", "mobile").map { name ->
-            val s = speeds[name]
-            NetLive(name, name in up, s != null, s ?: 0.0, if (total > 0.05 && s != null) s / total else 0.0, shares[name] ?: 0.0)
+            val d = downs[name]
+            val u = ups[name] ?: 0.0
+            val s = if (d == null) null else d + u
+            NetLive(name, name in up, d != null, s ?: 0.0, if (total > 0.05 && s != null) s / total else 0.0, shares[name] ?: 0.0, d ?: 0.0, u)
         }
         val b = runCatching { JSONObject(mobile.Mobile.blockStats()) }.getOrNull()
         val recent = b?.optJSONArray("recent")?.let { a -> (0 until a.length()).map { a.getJSONObject(it).let { r -> r.getString("name") to r.getInt("count") } } } ?: emptyList()
         return Live(
-            running = running, nets = nets, totalMbps = total, history = history.toList(),
+            running = running, nets = nets, totalMbps = total, totalDown = totalDown, totalUp = totalUp,
+            history = history.toList(), upHistory = upHistory.toList(),
             mobileToday = Usage.mobileToday(ctx), overLimit = MergeVpnService.overLimit,
             blockOn = Blocklists.on(ctx), blockNames = b?.optInt("names") ?: 0,
             blocked = b?.optLong("blocked") ?: 0, asked = b?.optLong("asked") ?: 0, recent = recent,
             blockedToday = Usage.blockedToday(ctx), problem = if (running) null else MergeVpnService.problem,
+            mobileDataOn = mobileDataOn(ctx),
             paused = !running && MergeVpnService.batteryPaused, battery = MergeVpnService.batteryLevel,
             resumeAt = MergeVpnService.resumeLevel(ctx),
         )
     }
 
     companion object {
+        /** Mobile data switched on in the phone's settings. Many phones keep it asleep while on Wi-Fi, so "not
+         *  connected" alone does not mean it is off: merging wakes it. */
+        fun mobileDataOn(ctx: Context): Boolean = runCatching {
+            (ctx.getSystemService(android.telephony.TelephonyManager::class.java)).isDataEnabled
+        }.getOrDefault(true)
+
         /** Which of Wi-Fi / mobile data are connected now, without asking Android to keep anything up. */
         fun upNow(ctx: Context): Set<String> {
             val cm = ctx.getSystemService(ConnectivityManager::class.java)

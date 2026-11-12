@@ -37,6 +37,7 @@ sh ci/exclude.sh || exit 1
 sh ci/battery.sh || exit 1
 sh ci/system.sh || exit 1
 sh ci/blocking.sh || exit 1
+sh ci/speedtest.sh || exit 1
 sh ci/upload.sh || true
 adb shell am start -n dev.netmerge.android/.MainActivity --ez merge true; sleep 4
 (adb shell am instrument -w -r -e class dev.netmerge.probe.ProbeTest#download -e conns 8 -e secs 12 -e size 4000000000 dev.netmerge.probe.test/androidx.test.runner.AndroidJUnitRunner > /dev/null &) ; sleep 6
@@ -55,7 +56,7 @@ adb shell am force-stop dev.netmerge.android
 adb shell run-as dev.netmerge.android rm -f shared_prefs/settings.xml || true
 adb shell am start -n dev.netmerge.android/.MainActivity; sleep 4; adb shell screencap -p /sdcard/screen-welcome.png; adb pull /sdcard/screen-welcome.png . || true
 # the screenshots in the log (artifacts cannot always be downloaded): between the markers, base64
-for f in screen-merging.png screen-off.png screen-block.png screen-settings.png screen-notification.png screen-welcome.png; do [ -f $f ] && { echo "BEGIN-$f"; base64 -w0 $f; echo; echo "END-$f"; }; done
+for f in screen-speedtest-running.png screen-speedtest.png screen-merging.png screen-off.png screen-block.png screen-settings.png screen-notification.png screen-welcome.png; do [ -f $f ] && { echo "BEGIN-$f"; base64 -w0 $f; echo; echo "END-$f"; }; done
 
 # the shrunk build for real phones: installs over the debug build, starts, and pages open through it
 adb install -r app/build/outputs/apk/release/app-universal-release.apk || { echo "the release build did not install"; exit 1; }
@@ -69,7 +70,9 @@ adb shell dumpsys connectivity | grep -c "VPN CONNECTED" || true
 grep -q "^OK (" release.txt || { echo "pages failed through the release build"; exit 1; }
 # Always-on VPN (and a restart) starts the VPN service Android finds for the app: the release must hold exactly one, the
 # merging one. With a second one (the first spike's), a phone came back from a restart with a VPN that carried nothing.
-vpns=$(adb shell cmd package query-services -a android.net.VpnService | grep -o "dev.netmerge.android/[A-Za-z.]*" | sort -u)
+# (the package's own resolver table: "cmd package query-services" leaves out services that are not exported)
+adb shell dumpsys package dev.netmerge.android | grep -E "dev.netmerge.android/\.(Merge|Spike)VpnService" > vpns.txt
+vpns=$(grep -o -E "(Merge|Spike)VpnService" vpns.txt | sort -u | tr '\n' ' ')
 echo "VPN services in the release: $vpns"
-[ "$vpns" = "dev.netmerge.android/.MergeVpnService" ] || { echo "the release must hold only MergeVpnService"; exit 1; }
+[ "$vpns" = "MergeVpnService " ] || { echo "the release must hold only MergeVpnService; Android lists:"; cat vpns.txt | head -20; exit 1; }
 echo "release build: OK"
