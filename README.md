@@ -9,6 +9,20 @@ one single connection still uses one network.
 connections when both networks are fast; dropping a network in the middle of a download stalls it for under 3 s.
 Results, costs and open questions: [docs/feasibility-results.md](docs/feasibility-results.md).
 
+## Screenshots
+
+On a Galaxy S26 Ultra (Android 17), from the phone tests.
+
+| Home, off | Home, merging | Each network |
+| --- | --- | --- |
+| <img src="docs/screenshots/home-off.png" width="240"> | <img src="docs/screenshots/home-merging.png" width="240"> | <img src="docs/screenshots/home-networks.png" width="240"> |
+
+| Speed test | Ad blocking | Settings |
+| --- | --- | --- |
+| <img src="docs/screenshots/speed-test.png" width="240"> | <img src="docs/screenshots/blocking-dark.png" width="240"> | <img src="docs/screenshots/settings.png" width="240"> |
+
+More in [docs/screenshots](docs/screenshots): dark mode, the speed test before it runs, the rest of the settings.
+
 ## What is in it
 
 | Part | What it does |
