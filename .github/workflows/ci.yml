@@ -42,8 +42,15 @@ jobs:
           go test ./split
           gomobile init
           mkdir -p ../app/libs
-          gomobile bind -target=android/arm64,android/amd64 -androidapi 29 -o ../app/libs/engine.aar ./mobile
+          # 16 KB memory pages (Google Play requires apps to support them): the engine's library must be aligned to 16 KB
+          CGO_LDFLAGS="-Wl,-z,max-page-size=16384" gomobile bind -target=android/arm64,android/amd64 -androidapi 29 -o ../app/libs/engine.aar ./mobile
           ls -la ../app/libs
+          mkdir -p /tmp/aar && unzip -o -q ../app/libs/engine.aar -d /tmp/aar
+          for so in /tmp/aar/jni/*/libgojni.so; do
+            al=$("$ANDROID_NDK_HOME"/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf -l "$so" | awk '$1=="LOAD"{print $NF}' | sort -u | tr '\n' ' ')
+            echo "$so LOAD alignment: $al"
+            for v in $al; do case $v in 0x4000|0x10000) ;; *) echo "not aligned to 16 KB: $v"; exit 1;; esac; done
+          done
       - name: Allow the emulator to use KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
