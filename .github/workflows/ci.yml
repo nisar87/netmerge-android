@@ -47,8 +47,9 @@ jobs:
           ls -la ../app/libs
           mkdir -p /tmp/aar && unzip -o -q ../app/libs/engine.aar -d /tmp/aar
           for so in /tmp/aar/jni/*/libgojni.so; do
-            al=$("$ANDROID_NDK_HOME"/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf -l "$so" | awk '$1=="LOAD"{print $NF}' | sort -u | tr '\n' ' ')
+            al=$(readelf -lW "$so" | awk '$1=="LOAD"{print $NF}' | sort -u | tr '\n' ' ')
             echo "$so LOAD alignment: $al"
+            [ -n "$al" ] || { echo "could not read the alignment"; readelf -lW "$so" | head -30; exit 1; }
             for v in $al; do case $v in 0x4000|0x10000) ;; *) echo "not aligned to 16 KB: $v"; exit 1;; esac; done
           done
       - name: Allow the emulator to use KVM
