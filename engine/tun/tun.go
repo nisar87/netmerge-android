@@ -197,10 +197,17 @@ func (e *Engine) dial(proto string, ip net.IP, port int) (net.Conn, split.Net, e
 		// 5 s: a working network answers far sooner; a network that is going away should not hold the app long,
 		// the next try goes to another network.
 		d := net.Dialer{Timeout: 5 * time.Second, Control: control(proto, n.Handle)}
+		t0 := time.Now()
 		c, err := d.Dial(proto, addr)
 		if err == nil {
+			if proto == "tcp" {
+				e.Split.Answered(n.Name, time.Since(t0))
+			}
 			e.track(c, n.Handle)
 			return c, n, nil
+		}
+		if proto == "tcp" {
+			e.Split.Answered(n.Name, 5*time.Second) // could not answer: counts as very slow
 		}
 		lastErr = err
 	}
@@ -212,6 +219,23 @@ func (e *Engine) dial(proto string, ip net.IP, port int) (net.Conn, split.Net, e
 }
 
 var errNoNetwork = &net.AddrError{Err: "no network can reach this address"}
+
+// dialRanked opens a connection on the best network (Splitter.Ranked), or the next if that fails.
+func (e *Engine) dialRanked(proto string, ip net.IP, port int) (net.Conn, split.Net, error) {
+	addr := net.JoinHostPort(ip.String(), strconv.Itoa(port))
+	var lastErr error = errNoNetwork
+	for _, n := range e.Split.Ranked(ip.To4() == nil) {
+		d := net.Dialer{Timeout: 5 * time.Second, Control: control(proto, n.Handle)}
+		c, err := d.Dial(proto, addr)
+		if err == nil {
+			e.track(c, n.Handle)
+			return c, n, nil
+		}
+		lastErr = err
+	}
+	e.fails.Add(1)
+	return nil, split.Net{}, lastErr
+}
 
 // HandleTCP and HandleUDP are called from the stack's packet loop: they must return at once.
 func (e *Engine) HandleTCP(c adapter.TCPConn) { go e.relayTCP(c) }
@@ -281,7 +305,8 @@ func (e *Engine) relayDNS(c adapter.UDPConn, ip net.IP) {
 			continue
 		}
 		if out == nil {
-			o, n, err := e.dial("udp", ip, 53)
+			// DNS goes on the best network (quick to answer), never by share: every page waits for its lookups
+			o, n, err := e.dialRanked("udp", ip, 53)
 			if err != nil {
 				return
 			}

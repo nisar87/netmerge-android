@@ -3,6 +3,7 @@ package split
 import (
 	"math"
 	"testing"
+	"time"
 )
 
 func picks(s *Splitter, n int, v6 bool) map[string]int {
@@ -169,5 +170,89 @@ func TestUnmeasuredNetworkIsNotTrickled(t *testing.T) {
 	got := picks(&s, 1000, false)
 	if got["wifi"] < 150 {
 		t.Fatalf("unmeasured Wi-Fi got only %d of 1000: %v", got["wifi"], got)
+	}
+}
+
+// A network that takes far longer to answer than the other gets only a trickle at once, before it has carried
+// anything: web pages are many small connections and each one would wait for it (seen on a phone: very slow mobile
+// data, a website did not open at all while merging).
+func TestSlowToAnswerGetsATrickle(t *testing.T) {
+	var s Splitter
+	s.SetNets([]Net{{Name: "wifi", V4: true}, {Name: "mobile", V4: true}})
+	for i := 0; i < 5; i++ {
+		s.Answered("wifi", 30*time.Millisecond)
+		s.Answered("mobile", 900*time.Millisecond)
+	}
+	got := picks(&s, 1000, false)
+	if got["mobile"] > 50 {
+		t.Fatalf("slow-to-answer mobile got %d of 1000 new connections, want a trickle: %v", got["mobile"], got)
+	}
+	// both answer about as quickly: no trickle
+	var q Splitter
+	q.SetNets([]Net{{Name: "wifi", V4: true}, {Name: "mobile", V4: true}})
+	q.Answered("wifi", 40*time.Millisecond)
+	q.Answered("mobile", 70*time.Millisecond)
+	if got := picks(&q, 100, false); got["mobile"] < 40 {
+		t.Fatalf("mobile answering in 70 ms next to 40 ms was cut: %v", got)
+	}
+}
+
+// A network that joins next to a busy fast one, then carries almost nothing while its connections stay open, loses
+// its share within seconds (it used to keep the fast network's speed forever: below 32 KB/s nothing was learned).
+func TestVerySlowBusyNetworkLosesShareQuickly(t *testing.T) {
+	var s Splitter
+	s.SetNets([]Net{{Name: "wifi", V4: true}})
+	wrx, _, _ := s.Counter("wifi")
+	for i := 0; i < 5; i++ {
+		wrx.Add(6_000_000)
+		s.Tick(1)
+	}
+	s.SetNets([]Net{{Name: "wifi", V4: true}, {Name: "mobile", V4: true}})
+	wrx, _, _ = s.Counter("wifi")
+	mrx, _, mact := s.Counter("mobile")
+	mact.Add(3) // connections open on mobile
+	for i := 0; i < 30; i++ {
+		wrx.Add(6_000_000)
+		mrx.Add(4_000) // about 32 kbps
+		s.Tick(1)
+	}
+	got := picks(&s, 1000, false)
+	if got["mobile"] > 50 {
+		t.Fatalf("very slow busy mobile got %d of 1000 after 30 s: %v", got["mobile"], got)
+	}
+}
+
+// While every network is quiet (open connections, no data), nothing is judged slow.
+func TestQuietOpenConnectionsAreNotSlow(t *testing.T) {
+	var s Splitter
+	s.SetNets([]Net{{Name: "wifi", V4: true}, {Name: "mobile", V4: true}})
+	wrx, _, wact := s.Counter("wifi")
+	mrx, _, mact := s.Counter("mobile")
+	for i := 0; i < 10; i++ {
+		wrx.Add(8_000_000)
+		mrx.Add(4_000_000)
+		s.Tick(1)
+	}
+	wact.Add(5)
+	mact.Add(5)
+	for i := 0; i < 60; i++ {
+		s.Tick(1)
+	}
+	got := picks(&s, 1000, false)
+	share := float64(got["mobile"]) / 1000
+	if share < 0.28 || share > 0.38 {
+		t.Fatalf("mobile share after a quiet minute %.2f, want about 0.33: %v", share, got)
+	}
+}
+
+// DNS and the like go on the best network first: quick to answer, then fast.
+func TestRankedPutsTheQuickNetworkFirst(t *testing.T) {
+	var s Splitter
+	s.SetNets([]Net{{Name: "mobile", V4: true}, {Name: "wifi", V4: true}})
+	s.Answered("wifi", 30*time.Millisecond)
+	s.Answered("mobile", 1200*time.Millisecond)
+	r := s.Ranked(false)
+	if len(r) != 2 || r[0].Name != "wifi" {
+		t.Fatalf("ranked %v, want wifi first", r)
 	}
 }
