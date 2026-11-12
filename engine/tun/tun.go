@@ -206,9 +206,8 @@ func (e *Engine) dial(proto string, ip net.IP, port int) (net.Conn, split.Net, e
 			e.track(c, n.Handle)
 			return c, n, nil
 		}
-		if proto == "tcp" {
-			e.Split.Answered(n.Name, 5*time.Second) // could not answer: counts as very slow
-		}
+		// (a failed connection is not counted as a slow answer: right after a network comes back its first few fail,
+		// and counting them cut a working network to a trickle; the next try goes to another network anyway)
 		lastErr = err
 	}
 	e.fails.Add(1)
