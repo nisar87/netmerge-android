@@ -57,6 +57,9 @@ object Settings {
     private fun p(ctx: Context) = ctx.getSharedPreferences("settings", Context.MODE_PRIVATE)
     fun onDemand(ctx: Context) = p(ctx).getBoolean("mobileOnDemand", false)
     fun setOnDemand(ctx: Context, v: Boolean) = p(ctx).edit().putBoolean("mobileOnDemand", v).apply()
+    /** Mobile data may be used for merging while roaming (off: roaming abroad can cost a lot). */
+    fun roaming(ctx: Context) = p(ctx).getBoolean("mobileRoaming", false)
+    fun setRoaming(ctx: Context, v: Boolean) = p(ctx).edit().putBoolean("mobileRoaming", v).apply()
     /** Daily limit for mobile data used by merging, in MB; 0 = no limit. */
     fun limitMB(ctx: Context) = p(ctx).getInt("mobileLimitMB", 0)
     fun setLimitMB(ctx: Context, v: Int) = p(ctx).edit().putInt("mobileLimitMB", v).apply()

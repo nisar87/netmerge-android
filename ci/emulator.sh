@@ -33,6 +33,7 @@ grep ENGINE logcat.txt | grep '"nets"' | tail -1 | sed 's/.*ENGINE //' | jq -e '
 sh ci/dropout.sh || exit 1
 sh ci/ondemand.sh || exit 1
 sh ci/limit.sh || exit 1
+sh ci/roaming.sh || exit 1
 sh ci/exclude.sh || exit 1
 sh ci/battery.sh || exit 1
 sh ci/system.sh || exit 1

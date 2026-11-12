@@ -39,6 +39,7 @@ class MergeVpnService : VpnService() {
         if (intent?.hasExtra("ondemand") == true) {
             Settings.setOnDemand(this, intent.getBooleanExtra("ondemand", false))
         }
+        if (intent?.hasExtra("roaming") == true) Settings.setRoaming(this, intent.getBooleanExtra("roaming", false))
         if (intent?.hasExtra("limitmb") == true) Settings.setLimitMB(this, intent.getIntExtra("limitmb", 0))
         if (intent?.hasExtra("blocking") == true) {
             Blocklists.setOn(this, intent.getBooleanExtra("blocking", true))
@@ -309,8 +310,10 @@ class MergeVpnService : VpnService() {
         overLimit = limit > 0 && Usage.mobileToday(this) >= limit
         onDemand = Settings.onDemand(this)
         if (bytesPerSecond > BUSY) { busyFor++; quietFor = 0 } else if (bytesPerSecond < QUIET) { quietFor++; busyFor = 0 } else { busyFor = 0; quietFor = 0 }
+        roamingNow = roaming()
         val (want, why) = when {
             !wifi -> true to "no Wi-Fi"
+            roamingNow && !Settings.roaming(this) -> false to "roaming"
             overLimit -> false to "daily limit reached"
             !onDemand -> true to "always"
             held -> (quietFor < 30) to "quiet for a minute"
@@ -322,6 +325,11 @@ class MergeVpnService : VpnService() {
             event((if (want) "mobile held: " else "mobile released: ") + why)
         }
     }
+
+    /** The phone is roaming on mobile data (abroad, or on another carrier's network). */
+    private fun roaming(): Boolean = runCatching {
+        getSystemService(android.telephony.TelephonyManager::class.java).isNetworkRoaming
+    }.getOrDefault(false)
 
     private fun networksChanged() {
         val n = nets ?: return
@@ -402,6 +410,8 @@ class MergeVpnService : VpnService() {
         const val ACTION_CHECK = "dev.netmerge.android.MERGE_CHECK"
         /** Merging is paused until the battery charges back (see batteryChanged). */
         @Volatile var batteryPaused = false
+        /** Mobile data is roaming now (merging leaves it alone unless the setting allows it). */
+        @Volatile var roamingNow = false
         @Volatile var batteryLevel = -1
         /** The resume level, at least 5 points above the stop level so it cannot flip back and forth. */
         fun resumeLevel(c: Context) = maxOf(Settings.batteryResume(c), Settings.batteryStop(c) + 5)

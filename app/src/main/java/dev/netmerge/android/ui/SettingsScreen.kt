@@ -62,6 +62,12 @@ fun SettingsScreen(live: Live, openApps: () -> Unit) {
                 "Mobile data is let go after a quiet minute and comes back for big downloads. Saves battery; a download already running gains less.",
                 onDemand) { onDemand = it; Settings.setOnDemand(ctx, it) }
             HorizontalDivider(color = scheme.outlineVariant)
+            var roaming by remember { mutableStateOf(Settings.roaming(ctx)) }
+            SwitchRow(Icons.Rounded.TravelExplore, "Use mobile data while roaming",
+                if (dev.netmerge.android.MergeVpnService.roamingNow) "Roaming now. Off: merging leaves mobile data alone abroad, where it can cost a lot."
+                else "Off: merging leaves mobile data alone abroad, where it can cost a lot.",
+                roaming) { roaming = it; Settings.setRoaming(ctx, it) }
+            HorizontalDivider(color = scheme.outlineVariant)
             Column(Modifier.padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Rounded.DataUsage, null, tint = scheme.primary)
