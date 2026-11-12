@@ -47,6 +47,7 @@ object SpeedTest {
         stop.set(false)
         val rows = ArrayList<Row>()
         var mobileBytes = 0L
+        var failed: String? = null // why the last measure got nothing
         val steps = listOfNotNull(wifi, mobile).size * 2 + (if (wifi != null && mobile != null) 2 else 0)
         var step = 0
         var st = State(running = true)
@@ -54,16 +55,18 @@ object SpeedTest {
         fun measure(label: String, nets: List<Pair<Network, Int>>, upload: Boolean): Double {
             val r = transfer(nets, upload, secs) { now -> show(st.copy(phase = label, now = now, upload = upload, progress = (step + 0.5f) / steps)) }
             step++
-            if (nets.any { it.first == mobile }) mobileBytes += r.second
+            mobileBytes += mobile?.let { r.second[it] } ?: 0L // only what went over mobile data counts against the plan
+            if (r.first == 0.0) failed = lastError
             return r.first
         }
         val alone = HashMap<Network, Double>()
         for ((net, name) in listOfNotNull(wifi?.let { it to "Wi-Fi" }, mobile?.let { it to "Mobile data" })) {
             if (stop.get()) break
+            failed = null
             val d = measure("$name: download", listOf(net to CONNS), false)
             val u = measure("$name: upload", listOf(net to CONNS / 2), true)
             alone[net] = d
-            rows += Row(name, d, u, if (d == 0.0) "no answer from the test server" else null)
+            rows += Row(name, d, u, failed?.let { (if (d == 0.0) "download" else "upload") + " failed: " + it })
             show(st.copy(rows = rows.toList(), mobileMB = mobileBytes / 1e6))
         }
         if (wifi != null && mobile != null && !stop.get()) {
@@ -82,8 +85,13 @@ object SpeedTest {
      * Downloads (or uploads) on the given networks with the given number of connections each, for secs seconds;
      * calls now(Mbps) about 4 times a second. Returns (Mbps after the first 2 s, the bytes moved on these networks).
      */
-    private fun transfer(nets: List<Pair<Network, Int>>, upload: Boolean, secs: Double, now: (Double) -> Unit): Pair<Double, Long> {
+    /** The last error of the last transfer (shown when a direction got nothing). */
+    @Volatile private var lastError: String? = null
+
+    private fun transfer(nets: List<Pair<Network, Int>>, upload: Boolean, secs: Double, now: (Double) -> Unit): Pair<Double, Map<Network, Long>> {
         val bytes = AtomicLong()
+        val perNet = nets.associate { it.first to AtomicLong() }
+        lastError = null
         val t0 = SystemClock.elapsedRealtime()
         val deadline = t0 + ((secs + 2) * 1000).toLong() // 2 s to get going, not counted
         val chunk = ByteArray(64 shl 10) { (it * 31).toByte() }
@@ -105,12 +113,13 @@ object SpeedTest {
                                 c.outputStream.use { out ->
                                     var sent = 0L
                                     while (sent < (10L shl 20) && SystemClock.elapsedRealtime() < deadline && !stop.get()) {
-                                        out.write(chunk); sent += chunk.size; bytes.addAndGet(chunk.size.toLong())
+                                        out.write(chunk); sent += chunk.size; bytes.addAndGet(chunk.size.toLong()); perNet[net]!!.addAndGet(chunk.size.toLong())
                                     }
                                 }
                                 runCatching { c.responseCode }
                             } else {
                                 if (c.responseCode !in 200..299) {
+                                    lastError = "server answered ${c.responseCode}"
                                     // refused (429 and the like): every connection moves on to the next server
                                     downAt.compareAndSet(di, di + 1)
                                     c.disconnect()
@@ -121,12 +130,13 @@ object SpeedTest {
                                     while (SystemClock.elapsedRealtime() < deadline && !stop.get()) {
                                         val k = inp.read(buf)
                                         if (k < 0) break
-                                        bytes.addAndGet(k.toLong())
+                                        bytes.addAndGet(k.toLong()); perNet[net]!!.addAndGet(k.toLong())
                                     }
                                 }
                             }
                             c.disconnect()
                         } catch (e: Exception) {
+                            lastError = e.javaClass.simpleName + (e.message?.let { ": " + it.take(60) } ?: "")
                             SystemClock.sleep(300)
                         }
                     }
@@ -152,6 +162,6 @@ object SpeedTest {
         val total = bytes.get()
         workers.forEach { it.join(3000) }
         val mbps = if (at2s >= 0 && end > t2) (total - at2s) * 8.0 / ((end - t2) / 1000.0) / 1e6 else 0.0
-        return mbps to bytes.get()
+        return mbps to perNet.mapValues { it.value.get() }
     }
 }
