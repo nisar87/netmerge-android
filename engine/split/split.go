@@ -38,6 +38,7 @@ type line struct {
 	lastRx                int64
 	cur                   float64 // smooth weighted round robin state
 	rtt                   float64 // smoothed time to open a connection (s); 0 until the first one
+	answers               int     // connections opened (for rtt)
 	busy                  float64 // seconds it has had connections open (judging a slow network needs no 2 MB)
 }
 
@@ -61,8 +62,11 @@ const (
 	slowForget = 0.85
 	// slowAnswer: a network that takes this many times as long as the quickest to answer a new connection (and at
 	// least slowAnswerMin longer) gets only a trickle: web pages are many small connections and wait for each.
-	slowAnswer    = 3.0
-	slowAnswerMin = 0.15
+	// (3× and 0.15 s was too eager: on a phone, Wi-Fi answering its first few connections in 0.27 s next to mobile at
+	// 0.09 s was cut to a trickle, though it was the faster network for pages)
+	slowAnswer    = 4.0
+	slowAnswerMin = 0.3
+	answersNeeded = 3 // answers seen before a network is judged by them
 	// judged: seconds of open connections after which a network's speed counts as known even without 2 MB
 	judged = 20.0
 	// slowPart: a network slower than this part of the fastest gets only a trickle of new connections (1 in
@@ -193,7 +197,7 @@ func (s *Splitter) bests(v6 bool) (fastest, quickest float64) {
 		if l.cap > fastest {
 			fastest = l.cap
 		}
-		if l.rtt > 0 && (quickest == 0 || l.rtt < quickest) {
+		if l.answers >= answersNeeded && (quickest == 0 || l.rtt < quickest) {
 			quickest = l.rtt
 		}
 	}
@@ -202,13 +206,14 @@ func (s *Splitter) bests(v6 bool) (fastest, quickest float64) {
 
 // slowToAnswer: it takes far longer than the quickest network to open a connection.
 func (l *line) slowToAnswer(quickest float64) bool {
-	return l.rtt > 0 && quickest > 0 && l.rtt > slowAnswer*quickest && l.rtt-quickest > slowAnswerMin
+	return l.answers >= answersNeeded && quickest > 0 && l.rtt > slowAnswer*quickest && l.rtt-quickest > slowAnswerMin
 }
 
 // weight is a network's share of new connections: its learned speed, or a trickle when it has shown that it is far
 // slower than the fastest network, or far slower to answer.
 func (l *line) weight(fastest, quickest float64) float64 {
-	if l.slowToAnswer(quickest) {
+	if l.slowToAnswer(quickest) && !(l.rx.Load() > measured && l.cap >= fastest) {
+		// (a network proven the fastest by what it carried keeps its share however long it takes to answer)
 		return fastest / trickle
 	}
 	if l.rx.Load() <= measured && l.busy < judged {
@@ -228,6 +233,7 @@ func (s *Splitter) Answered(name string, d time.Duration) {
 	for _, l := range s.lines {
 		if l.Name == name {
 			t := d.Seconds()
+			l.answers++
 			if l.rtt == 0 {
 				l.rtt = t
 			} else {
@@ -285,7 +291,7 @@ func (s *Splitter) Stats() []Stat {
 		if l.cap > fastest {
 			fastest = l.cap
 		}
-		if l.rtt > 0 && (quickest == 0 || l.rtt < quickest) {
+		if l.answers >= answersNeeded && (quickest == 0 || l.rtt < quickest) {
 			quickest = l.rtt
 		}
 	}

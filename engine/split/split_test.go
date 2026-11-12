@@ -190,8 +190,10 @@ func TestSlowToAnswerGetsATrickle(t *testing.T) {
 	// both answer about as quickly: no trickle
 	var q Splitter
 	q.SetNets([]Net{{Name: "wifi", V4: true}, {Name: "mobile", V4: true}})
-	q.Answered("wifi", 40*time.Millisecond)
-	q.Answered("mobile", 70*time.Millisecond)
+	for i := 0; i < 5; i++ {
+		q.Answered("wifi", 40*time.Millisecond)
+		q.Answered("mobile", 70*time.Millisecond)
+	}
 	if got := picks(&q, 100, false); got["mobile"] < 40 {
 		t.Fatalf("mobile answering in 70 ms next to 40 ms was cut: %v", got)
 	}
@@ -249,10 +251,53 @@ func TestQuietOpenConnectionsAreNotSlow(t *testing.T) {
 func TestRankedPutsTheQuickNetworkFirst(t *testing.T) {
 	var s Splitter
 	s.SetNets([]Net{{Name: "mobile", V4: true}, {Name: "wifi", V4: true}})
-	s.Answered("wifi", 30*time.Millisecond)
-	s.Answered("mobile", 1200*time.Millisecond)
+	for i := 0; i < 3; i++ {
+		s.Answered("wifi", 30*time.Millisecond)
+		s.Answered("mobile", 1200*time.Millisecond)
+	}
 	r := s.Ranked(false)
 	if len(r) != 2 || r[0].Name != "wifi" {
 		t.Fatalf("ranked %v, want wifi first", r)
+	}
+}
+
+// The phone's case: Wi-Fi answering its first connections in 0.27 s next to mobile at 0.09 s is not cut (both are
+// fine for pages); nor are two answers enough to judge.
+func TestModeratelySlowerAnswerIsNotCut(t *testing.T) {
+	var s Splitter
+	s.SetNets([]Net{{Name: "wifi", V4: true}, {Name: "mobile", V4: true}})
+	for i := 0; i < 5; i++ {
+		s.Answered("wifi", 270*time.Millisecond)
+		s.Answered("mobile", 88*time.Millisecond)
+	}
+	if got := picks(&s, 100, false); got["wifi"] < 40 {
+		t.Fatalf("Wi-Fi answering in 0.27 s next to 0.09 s was cut: %v", got)
+	}
+	var f Splitter
+	f.SetNets([]Net{{Name: "wifi", V4: true}, {Name: "mobile", V4: true}})
+	f.Answered("wifi", 30*time.Millisecond)
+	f.Answered("mobile", 2*time.Second)
+	if got := picks(&f, 100, false); got["mobile"] < 40 {
+		t.Fatalf("one slow answer was enough to cut mobile: %v", got)
+	}
+}
+
+// A network proven the fastest by what it carried keeps its share even when it is slow to answer.
+func TestProvenFastestKeepsShareWhenSlowToAnswer(t *testing.T) {
+	var s Splitter
+	s.SetNets([]Net{{Name: "wifi", V4: true}, {Name: "mobile", V4: true}})
+	wrx, _, _ := s.Counter("wifi")
+	mrx, _, _ := s.Counter("mobile")
+	for i := 0; i < 10; i++ {
+		wrx.Add(8_000_000)
+		mrx.Add(2_000_000)
+		s.Tick(1)
+	}
+	for i := 0; i < 5; i++ {
+		s.Answered("wifi", 900*time.Millisecond)
+		s.Answered("mobile", 50*time.Millisecond)
+	}
+	if got := picks(&s, 1000, false); got["wifi"] < 600 {
+		t.Fatalf("fastest Wi-Fi lost its share for answering slowly: %v", got)
 	}
 }
