@@ -14,7 +14,12 @@ import kotlin.concurrent.thread
  * on Wi-Fi and on mobile data at the same time, shared by each network's own speed, the way the engine shares them.
  */
 object SpeedTest {
-    private const val DOWN = "https://speed.cloudflare.com/__down?bytes=50000000"
+    /** Download servers, in order: when one refuses (a test server limits how much one address may fetch), the next. */
+    private val DOWN = listOf(
+        "https://speed.cloudflare.com/__down?bytes=50000000",
+        "https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb",
+    )
+    private val downAt = java.util.concurrent.atomic.AtomicInteger(0)
     private const val UP = "https://speed.cloudflare.com/__up"
     const val CONNS = 16
 
@@ -88,7 +93,8 @@ object SpeedTest {
                     val buf = ByteArray(64 shl 10)
                     while (SystemClock.elapsedRealtime() < deadline && !stop.get()) {
                         try {
-                            val c = net.openConnection(URL(if (upload) UP else DOWN)) as HttpURLConnection
+                            val di = downAt.get()
+                            val c = net.openConnection(URL(if (upload) UP else DOWN[di % DOWN.size])) as HttpURLConnection
                             c.connectTimeout = 8_000
                             c.readTimeout = 8_000
                             if (upload) {
@@ -104,6 +110,13 @@ object SpeedTest {
                                 }
                                 runCatching { c.responseCode }
                             } else {
+                                if (c.responseCode !in 200..299) {
+                                    // refused (429 and the like): every connection moves on to the next server
+                                    downAt.compareAndSet(di, di + 1)
+                                    c.disconnect()
+                                    SystemClock.sleep(200)
+                                    continue
+                                }
                                 c.inputStream.use { inp ->
                                     while (SystemClock.elapsedRealtime() < deadline && !stop.get()) {
                                         val k = inp.read(buf)
