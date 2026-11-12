@@ -2,5 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- the device test opens NetMerge and reads whether a VPN is up -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <queries>
+        <package android:name="dev.netmerge.android" />
+    </queries>
     <application android:label="NetMerge probe" android:usesCleartextTraffic="true" />
 </manifest>
