@@ -38,6 +38,14 @@ suspend fun runSpeedTest(ctx: Context) = withContext(Dispatchers.IO) {
     val n = DualNetworks(ctx)
     n.start()
     n.awaitBoth(10_000)
+    // many phones keep mobile data asleep while on Wi-Fi: waking it and checking it works can take 20 s or more
+    // (seen on a Galaxy S26 Ultra: 10 s was not enough)
+    val until = android.os.SystemClock.elapsedRealtime() + 30_000
+    while (android.os.SystemClock.elapsedRealtime() < until &&
+        !(n.usable(DualNetworks.Kind.WIFI) && n.usable(DualNetworks.Kind.MOBILE))) {
+        SpeedTestRun.state.value = SpeedTest.State(running = true, phase = "Waking mobile data")
+        Thread.sleep(500)
+    }
     val wifi = n.network(DualNetworks.Kind.WIFI)?.takeIf { n.usable(DualNetworks.Kind.WIFI) }
     val mobile = n.network(DualNetworks.Kind.MOBILE)?.takeIf { n.usable(DualNetworks.Kind.MOBILE) }
     try {
@@ -53,6 +61,11 @@ suspend fun runSpeedTest(ctx: Context) = withContext(Dispatchers.IO) {
         }
     } finally {
         n.stop()
+    }
+    if (mobile == null && wifi != null) {
+        // say why there is no merged result, rather than leaving it out
+        val st = SpeedTestRun.state.value
+        SpeedTestRun.state.value = st.copy(rows = st.rows + SpeedTest.Row("Mobile data", error = "did not come up: is it on?"))
     }
     val s = SpeedTestRun.state.value
     runCatching {
