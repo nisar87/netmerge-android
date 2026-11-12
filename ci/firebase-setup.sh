@@ -11,7 +11,8 @@ gcloud services enable testing.googleapis.com toolresults.googleapis.com iam.goo
 gcloud iam service-accounts describe $SA --project $P >/dev/null 2>&1 ||
   gcloud iam service-accounts create netmerge-ci --display-name "NetMerge CI (Test Lab only)" --project $P
 # Test Lab runs and their results (results go to a Cloud Storage bucket Test Lab makes in this project)
-for role in roles/cloudtestservice.testAdmin roles/firebase.analyticsViewer roles/storage.admin roles/serviceusage.serviceUsageConsumer; do
+# (Editor: Test Lab's own results bucket accepts uploads only from the project's editors; the project is for tests only)
+for role in roles/editor roles/cloudtestservice.testAdmin roles/firebase.analyticsViewer roles/storage.admin roles/serviceusage.serviceUsageConsumer; do
   gcloud projects add-iam-policy-binding $P --member serviceAccount:$SA --role $role --condition None >/dev/null
 done
 gcloud iam workload-identity-pools describe github --location global --project $P >/dev/null 2>&1 ||
