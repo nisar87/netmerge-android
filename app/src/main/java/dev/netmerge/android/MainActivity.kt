@@ -160,11 +160,18 @@ private fun App(pending: SnapshotStateList<Intent>, tabRequest: MutableState<Str
     BackHandler(enabled = appsOpen) { appsOpen = false }
     Scaffold(
         bottomBar = {
-            if (!appsOpen) NavigationBar {
-                for (t in Tab.entries) NavigationBarItem(
-                    selected = tab == t, onClick = { tab = t },
-                    icon = { Icon(t.icon, null) }, label = { Text(t.label, maxLines = 1) },
-                )
+            // the tab names stay whole with a large font: their size grows at most 10% (they were cut to
+            // "Blockin" and "Setting" at 130%); the icons say the rest
+            val d = androidx.compose.ui.platform.LocalDensity.current
+            if (!appsOpen) androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(d.density, minOf(d.fontScale, 1.1f)),
+            ) {
+                NavigationBar {
+                    for (t in Tab.entries) NavigationBarItem(
+                        selected = tab == t, onClick = { tab = t },
+                        icon = { Icon(t.icon, null) }, label = { Text(t.label, maxLines = 1, softWrap = false) },
+                    )
+                }
             }
         },
     ) { pad ->

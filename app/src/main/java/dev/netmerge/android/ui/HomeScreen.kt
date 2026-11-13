@@ -42,9 +42,12 @@ fun HomeScreen(live: Live, starting: Boolean, onToggle: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Spacer(Modifier.height(16.dp))
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("NetMerge", style = MaterialTheme.typography.headlineMedium)
+        // title and switch side by side; one above the other when a large font leaves too little room (the title
+        // broke as "NetM / erge" on a narrow screen with the font at 130%)
+        val narrow = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp /
+            androidx.compose.ui.platform.LocalDensity.current.fontScale < 330
+        @Composable fun header(m: Modifier) = Column(m) {
+                Text("NetMerge", style = MaterialTheme.typography.headlineMedium, maxLines = 1)
                 Text(
                     when {
                         starting -> "Starting…"
@@ -60,6 +63,12 @@ fun HomeScreen(live: Live, starting: Boolean, onToggle: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant,
                 )
             }
+        if (narrow) {
+            header(Modifier.fillMaxWidth())
+            Spacer(Modifier.height(10.dp))
+            MergeSwitch(on, starting, onToggle)
+        } else Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            header(Modifier.weight(1f))
             MergeSwitch(on, starting, onToggle)
         }
         // a newer version: download opens it in the browser, which installs it over this one
