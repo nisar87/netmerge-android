@@ -399,6 +399,8 @@ class MergeVpnService : VpnService() {
     }
 
     private fun stopMerging() {
+        // a stop followed by onDestroy comes here twice: clean up again (harmless), but log and report only once
+        val again = stopped
         Usage.flush(this)
         generation++
         stopped = true
@@ -413,6 +415,7 @@ class MergeVpnService : VpnService() {
         nets?.stop()
         nets = null
         logged("leave the foreground") { stopForeground(STOP_FOREGROUND_REMOVE) }
+        if (again) return
         Log.i(TAG, "ENGINE stopped")
         event("stopped")
         Diagnostics.maybeSend(this)
