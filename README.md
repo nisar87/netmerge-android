@@ -5,9 +5,34 @@ runs a VPN on the phone that catches every app's traffic; each **new connection*
 more of them on the faster one. Downloads, app stores, browsers and streaming open many connections and get faster;
 one single connection still uses one network.
 
-**Status: working test builds, not released; tested on five real phone models.** Measured on a Galaxy S26 Ultra: about +38% for downloads with many
-connections when both networks are fast; dropping a network in the middle of a download stalls it for under 3 s.
-Results, costs and open questions: [docs/feasibility-results.md](docs/feasibility-results.md).
+**Status: version 0.1.0, test builds, not released yet.** Android 10 or newer; targets Android 16 and supports 16 KB
+memory pages (both needed for Google Play). Tested on five real phone models: Galaxy S26 Ultra (every feature, real
+mobile data), and in Firebase Test Lab a Galaxy S22, Pixel 8a, Motorola razr plus 2024 and Oppo (Android 13 to 16), plus
+virtual phones on Android 10 and 14. Measured on the Galaxy S26 Ultra: about +38% for downloads with many connections
+when both networks are fast; a network dropping mid-download stalls it for under 1 s. Test by test:
+[docs/test-results.md](docs/test-results.md); first measurements and costs: [docs/feasibility-results.md](docs/feasibility-results.md).
+
+## Features
+
+- **Merging:** each new connection goes out on Wi-Fi or mobile data, more of them on the faster one; NetMerge learns
+  each network's speed and how quickly it answers. A very slow mobile network gets almost nothing, so web pages are
+  not held up by it.
+- **Dropouts:** when a network leaves, its connections close at once and apps carry on over the other one.
+- **Home:** a speed dial with the combined download in the middle and a ring showing each network's share; download
+  and upload shown apart; each network's own graph and share; upload, peak, downloaded, running time, mobile data and
+  ads blocked today.
+- **Speed test, built in:** Wi-Fi alone, mobile data alone, then both together, download and upload, with 16
+  connections at once (enough to show what merging adds); says how much mobile data it used.
+- **Ad and tracker blocking:** block lists (HaGeZi) for every app while NetMerge is on; ads and trackers, a stronger
+  list, malware and phishing; an allow list.
+- **Mobile data settings:** only when it helps (let go after a quiet minute, back for big downloads), a daily limit,
+  and never while roaming unless allowed.
+- **Battery guard:** merging pauses at a battery level you choose (apps keep the normal network) and starts again by
+  itself once charged to a second level.
+- **Apps left out of merging**, for apps that do not work with a VPN.
+- **Starts by itself** after a restart with Android's Always-on VPN; a **quick settings tile**; a notification with the
+  live speed.
+- **Nothing leaves the phone** except your own traffic: no account, no servers of ours, no tracking.
 
 ## Screenshots
 
@@ -32,13 +57,10 @@ More in [docs/screenshots](docs/screenshots): dark mode, the speed test before i
 | `probe/` | A separate test app that behaves like any app (pages, downloads, battery and long-run tests) |
 | `ci/` | What runs on the emulators for every change |
 
-The splitter learns each network's speed from what it carries, keeps it while idle, gives a network that has not
-shown its speed a fair chance, and gives a network far slower than the fastest only a trickle of new connections.
-When a network leaves, its connections are closed at once so apps reconnect on the one that works.
-
-Settings: mobile data only when it helps (let go after a quiet minute, back for big downloads; off by default), a
-daily limit for mobile data used by merging, and a battery guard (pause merging when the battery falls to a chosen
-level, start again by itself once it has charged back to a second level; off by default).
+The splitter learns each network's speed from what it carries and how long it takes to answer a new connection, keeps
+it while idle, gives a network that has not shown its speed a fair chance (for 20 s at most), and gives a network far
+slower than the fastest, or far slower to answer, only a trickle of new connections. DNS questions go to the best
+network first. When a network leaves, its connections are closed at once so apps reconnect on the one that works.
 
 ## How it is tested
 
