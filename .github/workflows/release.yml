@@ -12,6 +12,11 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch: # started by hand with a version: the release creates its tag
+    inputs:
+      version:
+        description: "Version, e.g. 0.2.0-beta.1 (a dash makes it a pre-release)"
+        required: true
 permissions:
   contents: write
 jobs:
@@ -33,6 +38,8 @@ jobs:
         id: v
         run: |
           tag="${GITHUB_REF_NAME}"
+          [ -n "${{ github.event.inputs.version }}" ] && tag="v${{ github.event.inputs.version }}"
+          echo "tag=$tag" >> $GITHUB_OUTPUT
           name="${tag#v}"
           # version code: one more than the newest release (or 3, after the test builds' 2)
           last=$(gh release list -R ${{ github.repository }} --limit 50 --json tagName,isDraft -q '.[] | select(.tagName|startswith("v")) | .tagName' | while read t; do
@@ -74,7 +81,7 @@ jobs:
           ./gradlew --no-daemon :app:assembleRelease -PversionName=${{ steps.v.outputs.name }} -PversionCode=${{ steps.v.outputs.code }}
           mkdir -p out
           for abi in arm64-v8a universal; do
-            cp app/build/outputs/apk/release/app-$abi-release.apk "out/NetMerge-${GITHUB_REF_NAME}-$abi.apk"
+            cp app/build/outputs/apk/release/app-$abi-release.apk "out/NetMerge-${{ steps.v.outputs.tag }}-$abi.apk"
           done
           rm -f "$NETMERGE_KEYSTORE"
       - name: Check the signature (the private key, not the public test key)
@@ -93,7 +100,7 @@ jobs:
           cat > notes.md <<EOF
           NetMerge for Android ${{ steps.v.outputs.name }}: Wi-Fi and mobile data at the same time.
 
-          **Install:** on the phone, open \`NetMerge-${GITHUB_REF_NAME}-arm64-v8a.apk\` (most phones; \`universal\` works on any)
+          **Install:** on the phone, open \`NetMerge-${{ steps.v.outputs.tag }}-arm64-v8a.apk\` (most phones; \`universal\` works on any)
           and allow your browser to install apps when Android asks. Later versions: NetMerge tells you, and Settings >
           About > Check for updates.
 
@@ -103,5 +110,5 @@ jobs:
 
           versionCode: ${{ steps.v.outputs.code }}
           EOF
-          gh release create "${GITHUB_REF_NAME}" out/* -R ${{ github.repository }} ${{ steps.v.outputs.pre }} \
+          gh release create "${{ steps.v.outputs.tag }}" out/* -R ${{ github.repository }} ${{ steps.v.outputs.pre }} --target "${GITHUB_SHA}" \
             --title "NetMerge for Android ${{ steps.v.outputs.name }}" --notes-file notes.md
