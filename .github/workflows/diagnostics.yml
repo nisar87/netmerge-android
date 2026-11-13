@@ -1,0 +1,46 @@
+# Diagnostics: reads the reports the app sent (Firestore, project netmerge-app) and keeps them as an artifact,
+# encrypted: this repository is public, so only the holder of the private key (diagnostics/README.md) can read them.
+# The workflow's log shows counts only.
+name: Diagnostics
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Reports of the last N days"
+        default: "2"
+  schedule:
+    - cron: "23 1 * * *" # daily
+permissions:
+  contents: read
+  id-token: write # GitHub proves who it is to Google (no key file)
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        id: auth
+        with:
+          workload_identity_provider: projects/940996643435/locations/global/workloadIdentityPools/github/providers/netmerge-android
+          service_account: netmerge-ci@netmerge-tests.iam.gserviceaccount.com
+          token_format: access_token
+      - name: Read the reports
+        env:
+          TOKEN: ${{ steps.auth.outputs.access_token }}
+          DAYS: ${{ github.event.inputs.days }}
+        run: python3 diagnostics/fetch.py | tee count.txt
+      - name: Encrypt them
+        run: |
+          mkdir out
+          openssl rand -out k.bin 32
+          openssl pkeyutl -encrypt -pubin -inkey diagnostics/reports-public.pem -pkeyopt rsa_padding_mode:oaep -in k.bin -out out/key.enc
+          gzip -9 reports.jsonl
+          openssl enc -aes-256-cbc -pbkdf2 -salt -pass file:k.bin -in reports.jsonl.gz -out out/reports.enc
+          cp count.txt out/
+          shred -u k.bin reports.jsonl.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reports
+          path: out/
+          retention-days: 7
