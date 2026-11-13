@@ -17,6 +17,6 @@ Checked from a browser: adding a report gives 200; reading, an unknown field or 
 
 Nobody has to open the console: the **Diagnostics** workflow (`.github/workflows/diagnostics.yml`, daily and by hand)
 reads the reports with the CI service account (`netmerge-ci@netmerge-tests`, Cloud Datastore Viewer on `netmerge-app`,
-no key file) and keeps them as an artifact for 7 days, **encrypted** with `reports-public.pem`: this repository is
+no key file) and keeps them on the branch `diagnostics-data` (one commit, replaced each run), **encrypted** with `reports-public.pem`: this repository is
 public, and its workflow log shows only counts. A scheduled Claude task holds the private key, runs
 `diagnostics/read.sh key.pem [days]` each day, looks for bugs in the reports, fixes them and releases a new version.
