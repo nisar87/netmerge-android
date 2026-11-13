@@ -1,6 +1,5 @@
 package dev.netmerge.probe
 
-import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Bundle
@@ -35,11 +34,15 @@ class DeviceSmokeTest {
 
     private fun vpnUp() = cm.allNetworks.any { cm.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true }
 
+    /**
+     * Opens NetMerge as a person (or adb) would, through the system's "am start": some makers block one app from
+     * opening another (Xiaomi HyperOS: the probe's start of NetMerge was dropped, the VPN never came up), which no
+     * user meets, since people open NetMerge themselves.
+     */
     private fun open(vararg extras: Pair<String, Any>) {
-        val i = Intent().setClassName("dev.netmerge.android", "dev.netmerge.android.MainActivity")
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        for ((k, v) in extras) when (v) { is Boolean -> i.putExtra(k, v); is String -> i.putExtra(k, v) }
-        ctx.startActivity(i)
+        val args = StringBuilder("am start -n dev.netmerge.android/.MainActivity -f 0x30000000")
+        for ((k, v) in extras) when (v) { is Boolean -> args.append(" --ez $k $v"); is String -> args.append(" --es $k $v") }
+        inst.uiAutomation.executeShellCommand(args.toString()).close()
     }
 
     /** Taps Android's own question buttons (VPN consent: OK; notifications: Allow) while they show. */
