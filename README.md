@@ -1,14 +1,15 @@
-# NetMerge for Android (test builds)
+# NetMerge for Android
 
 Uses Wi-Fi and mobile data at the same time on an Android phone, the way NetMerge merges a PC's connections. The app
 runs a VPN on the phone that catches every app's traffic; each **new connection** goes out on Wi-Fi or mobile data,
 more of them on the faster one. Downloads, app stores, browsers and streaming open many connections and get faster;
 one single connection still uses one network.
 
-**Status: version 0.1.0, test builds, not released yet.** Android 10 or newer; targets Android 16 and supports 16 KB
-memory pages (both needed for Google Play). Tested on five real phone models: Galaxy S26 Ultra (every feature, real
-mobile data), and in Firebase Test Lab a Galaxy S22, Pixel 8a, Motorola razr plus 2024 and Oppo (Android 13 to 16), plus
-virtual phones on Android 10 and 14. Measured on the Galaxy S26 Ultra: about +38% for downloads with many connections
+**Status: public beta** ([latest release](https://github.com/nisar87/netmerge-android/releases); install the APK from
+there; NetMerge offers each new version itself). Not on Google Play yet. Android 10 or newer; targets Android 16 and
+supports 16 KB memory pages (both needed for Google Play). Tested on seven real phone models: Galaxy S26 Ultra (every
+feature, real mobile data), and in Firebase Test Lab a Galaxy S22, Pixel 8a, Motorola razr plus 2024, Oppo and Xiaomi
+14 (Android 13 to 16), plus virtual phones on Android 10 and 14. Measured on the Galaxy S26 Ultra: about +38% for downloads with many connections
 when both networks are fast; a network dropping mid-download stalls it for under 1 s. Test by test:
 [docs/test-results.md](docs/test-results.md); first measurements and costs: [docs/feasibility-results.md](docs/feasibility-results.md).
 
@@ -95,5 +96,7 @@ Latest results, test by test: **[docs/test-results.md](docs/test-results.md)**.
 4. A real phone (Galaxy S26 Ultra, Android 17) runs every feature over adb: speed, dropouts, battery guard, ad
    blocking, restart with Always-on VPN, hours-long runs.
 
-Test builds are signed with a public test key (`app/test-signing.jks`) so a new build installs over the last one;
-a release will use a private key.
+Releases are signed with the private release key (kept in the repository's encrypted secrets; see
+`.github/workflows/release.yml`), so each beta installs over the last one with settings kept. Test builds from CI are
+signed with a public test key (`app/test-signing.jks`): a phone with a test build must uninstall it once before
+installing a release.

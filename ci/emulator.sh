@@ -51,13 +51,24 @@ adb shell cmd statusbar expand-notifications; sleep 2; adb shell screencap -p /s
 adb shell cmd statusbar collapse; sleep 1
 adb shell am start -n dev.netmerge.android/.MainActivity --es tab block; sleep 3; adb shell screencap -p /sdcard/screen-block.png; adb pull /sdcard/screen-block.png . || true
 adb shell am start -n dev.netmerge.android/.MainActivity --es tab settings; sleep 3; adb shell screencap -p /sdcard/screen-settings.png; adb pull /sdcard/screen-settings.png . || true
+# large font and large display size (Samsung's "font size" and "screen zoom" set high): the dial must still fit
+dens=$(adb shell wm density | grep -o "[0-9]*" | head -1)
+adb shell settings put system font_scale 1.3
+adb shell wm density $((dens * 115 / 100))
+sleep 2
+adb shell am start -n dev.netmerge.android/.MainActivity --es tab home; sleep 4; adb shell screencap -p /sdcard/screen-large-home.png; adb pull /sdcard/screen-large-home.png . || true
+adb shell am start -n dev.netmerge.android/.MainActivity --es tab test; sleep 3; adb shell screencap -p /sdcard/screen-large-test.png; adb pull /sdcard/screen-large-test.png . || true
+adb shell am start -n dev.netmerge.android/.MainActivity --es tab settings; sleep 3; adb shell screencap -p /sdcard/screen-large-settings.png; adb pull /sdcard/screen-large-settings.png . || true
+adb shell settings put system font_scale 1.0
+adb shell wm density reset
+sleep 2
 adb shell am start -n dev.netmerge.android/.MainActivity --es tab home
 adb shell am start -n dev.netmerge.android/.MainActivity --ez merge false; sleep 3
 adb shell am force-stop dev.netmerge.android
 adb shell run-as dev.netmerge.android rm -f shared_prefs/settings.xml || true
 adb shell am start -n dev.netmerge.android/.MainActivity; sleep 4; adb shell screencap -p /sdcard/screen-welcome.png; adb pull /sdcard/screen-welcome.png . || true
 # the screenshots in the log (artifacts cannot always be downloaded): between the markers, base64
-for f in screen-speedtest-running.png screen-speedtest.png screen-merging.png screen-off.png screen-block.png screen-settings.png screen-notification.png screen-welcome.png; do [ -f $f ] && { echo "BEGIN-$f"; base64 -w0 $f; echo; echo "END-$f"; }; done
+for f in screen-large-home.png screen-large-test.png screen-large-settings.png screen-speedtest-running.png screen-speedtest.png screen-merging.png screen-off.png screen-block.png screen-settings.png screen-notification.png screen-welcome.png; do [ -f $f ] && { echo "BEGIN-$f"; base64 -w0 $f; echo; echo "END-$f"; }; done
 
 # the shrunk build for real phones: installs over the debug build, starts, and pages open through it
 adb install -r app/build/outputs/apk/release/app-universal-release.apk || { echo "the release build did not install"; exit 1; }

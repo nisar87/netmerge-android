@@ -120,9 +120,9 @@ fun SpeedTestScreen(merging: Boolean) {
         } else {
             if (s.phase.isNotEmpty() && !s.done) Text(s.phase, style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant)
             Spacer(Modifier.height(8.dp))
-            Button(onClick = { scope.launch { runSpeedTest(ctx) } }, modifier = Modifier.height(52.dp).fillMaxWidth(0.7f)) {
+            Button(onClick = { scope.launch { runSpeedTest(ctx) } }, modifier = Modifier.heightIn(min = 52.dp).fillMaxWidth(0.85f)) {
                 Icon(Icons.Rounded.Speed, null); Spacer(Modifier.width(8.dp))
-                Text(if (s.rows.isEmpty()) "Start test" else "Test again", style = MaterialTheme.typography.titleMedium)
+                Text(if (s.rows.isEmpty()) "Start test" else "Test again", style = MaterialTheme.typography.titleMedium, maxLines = 1, softWrap = false)
             }
         }
         if (s.rows.isNotEmpty()) {
