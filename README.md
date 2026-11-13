@@ -5,7 +5,7 @@ runs a VPN on the phone that catches every app's traffic; each **new connection*
 more of them on the faster one. Downloads, app stores, browsers and streaming open many connections and get faster;
 one single connection still uses one network.
 
-**Status: working test builds, not released; tested on six phone models.** Measured on a Galaxy S26 Ultra: about +38% for downloads with many
+**Status: working test builds, not released; tested on five real phone models.** Measured on a Galaxy S26 Ultra: about +38% for downloads with many
 connections when both networks are fast; dropping a network in the middle of a download stalls it for under 3 s.
 Results, costs and open questions: [docs/feasibility-results.md](docs/feasibility-results.md).
 
