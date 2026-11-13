@@ -65,6 +65,7 @@ class MainActivity : ComponentActivity() {
         if (intent.hasExtra("merge")) pending += Intent(intent)
         intent.getStringExtra("tab")?.let { tabRequest.value = it }
         if (intent.getBooleanExtra("speedtest", false)) { tabRequest.value = "test"; speedTest.value = true }
+        if (intent.getBooleanExtra("checkupdates", false)) checkUpdates.value = true
     }
 }
 
@@ -125,7 +126,7 @@ private fun App(pending: SnapshotStateList<Intent>, tabRequest: MutableState<Str
         tabRequest.value = null
     }
     // a newer version: checked by itself at most once a day (tests: --ez checkupdates true, result in files/updates.json)
-    LaunchedEffect(Unit) {
+    LaunchedEffect(checkUpdates.value) {
         if (!Updates.checkedToday(ctx) || checkUpdates.value) withContext(Dispatchers.IO) { UpdateState.run(ctx) }
         checkUpdates.value = false
     }
