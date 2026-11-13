@@ -79,6 +79,7 @@ VPN service only), screenshots. The engine library's 16 KB page alignment is che
 | False speed spike during uploads | The owner, on the phone | Upload buffering limited; speed over real elapsed time |
 | Speed test: mobile data not woken in time; mobile data used over-counted | Phone test | Waits up to 30 s more; counts only mobile bytes |
 | Home said to turn on mobile data that was only asleep | Phone test | Reads the phone's mobile data setting |
+| Each stop was logged (and reported) twice | Diagnostics | A stop followed by the service's end is logged once |
 
 ## Not tested yet
 

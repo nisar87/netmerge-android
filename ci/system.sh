@@ -22,6 +22,8 @@ ev | grep -q started || fail "the tile did not start merging"
 sleep 3
 adb shell cmd statusbar click-tile dev.netmerge.android/.MergeTileService; sleep 5
 ev | tail -2 | grep -q stopped || fail "the tile did not stop merging"
+# a stop and the service's end both pass through the same stop: it must be logged once (seen twice on a phone)
+[ "$(ev | grep -c ' stopped$')" -le 1 ] || fail "one stop logged more than once"
 adb shell cmd statusbar remove-tile dev.netmerge.android/.MergeTileService
 adb shell cmd statusbar collapse
 echo "system: OK"
