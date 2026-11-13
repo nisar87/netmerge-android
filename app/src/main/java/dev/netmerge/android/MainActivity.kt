@@ -46,6 +46,7 @@ class MainActivity : ComponentActivity() {
     private val tabRequest = mutableStateOf<String?>(null)
     /** A speed test asked for from outside (test scripts: --ez speedtest true; result in files/speedtest.json). */
     private val speedTest = mutableStateOf(false)
+    private val checkUpdates = mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,7 +55,8 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null && intent.hasExtra("merge")) pending += Intent(intent)
         tabRequest.value = intent.getStringExtra("tab")
         if (intent.getBooleanExtra("speedtest", false)) { tabRequest.value = "test"; speedTest.value = true }
-        setContent { NetMergeTheme { App(pending, tabRequest, speedTest) } }
+        checkUpdates.value = intent.getBooleanExtra("checkupdates", false)
+        setContent { NetMergeTheme { App(pending, tabRequest, speedTest, checkUpdates) } }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -71,7 +73,7 @@ private enum class Tab(val label: String, val icon: ImageVector) {
 }
 
 @Composable
-private fun App(pending: SnapshotStateList<Intent>, tabRequest: MutableState<String?>, speedTest: MutableState<Boolean>) {
+private fun App(pending: SnapshotStateList<Intent>, tabRequest: MutableState<String?>, speedTest: MutableState<Boolean>, checkUpdates: MutableState<Boolean>) {
     val ctx = LocalContext.current
     val reader = remember { LiveReader(ctx) }
     var live by remember { mutableStateOf(Live()) }
@@ -121,6 +123,11 @@ private fun App(pending: SnapshotStateList<Intent>, tabRequest: MutableState<Str
     LaunchedEffect(tabRequest.value) {
         when (tabRequest.value) { "home" -> tab = Tab.Home; "test" -> tab = Tab.Test; "block" -> tab = Tab.Block; "settings" -> tab = Tab.Settings }
         tabRequest.value = null
+    }
+    // a newer version: checked by itself at most once a day (tests: --ez checkupdates true, result in files/updates.json)
+    LaunchedEffect(Unit) {
+        if (!Updates.checkedToday(ctx) || checkUpdates.value) withContext(Dispatchers.IO) { UpdateState.run(ctx) }
+        checkUpdates.value = false
     }
     LaunchedEffect(speedTest.value) {
         if (speedTest.value) { speedTest.value = false; runSpeedTest(ctx) }

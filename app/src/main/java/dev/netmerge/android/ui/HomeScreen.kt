@@ -62,6 +62,29 @@ fun HomeScreen(live: Live, starting: Boolean, onToggle: () -> Unit) {
             }
             MergeSwitch(on, starting, onToggle)
         }
+        // a newer version: download opens it in the browser, which installs it over this one
+        val newer = dev.netmerge.android.UpdateState.newer.value
+        if (newer != null && !dev.netmerge.android.UpdateState.dismissed.value) {
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            Spacer(Modifier.height(12.dp))
+            Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = scheme.primaryContainer)) {
+                Column(Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.SystemUpdate, null, tint = scheme.onPrimaryContainer)
+                        Spacer(Modifier.width(10.dp))
+                        Text("NetMerge ${newer.name} is ready" + if (newer.beta) " (beta)" else "",
+                            style = MaterialTheme.typography.titleSmall, color = scheme.onPrimaryContainer)
+                    }
+                    Text("Download opens it in your browser; tap the download to install it over this version. Your settings stay.",
+                        style = MaterialTheme.typography.bodySmall, color = scheme.onPrimaryContainer, modifier = Modifier.padding(top = 4.dp))
+                    Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { dev.netmerge.android.UpdateState.dismissed.value = true }) { Text("Later") }
+                        Spacer(Modifier.width(8.dp))
+                        Button(onClick = { dev.netmerge.android.Updates.download(ctx, newer) }) { Text("Download") }
+                    }
+                }
+            }
+        }
         live.problem?.let { msg ->
             Spacer(Modifier.height(12.dp))
             Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = scheme.errorContainer)) {

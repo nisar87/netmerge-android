@@ -12,19 +12,30 @@ android {
         applicationId = "dev.netmerge.android"
         minSdk = 29
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.1.0"
+        // a release sets both from its tag (release.yml: -PversionName=0.2.0-beta.1 -PversionCode=3)
+        versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 3
+        versionName = (project.findProperty("versionName") as String?) ?: "0.2.0-beta.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // Releases are signed with a private key that never enters this repository: the release workflow puts it on the
+    // build machine from GitHub's encrypted secrets and names it in these variables. Without them (test builds,
+    // emulator runs) the public test key is used.
+    val releaseKey = System.getenv("NETMERGE_KEYSTORE")?.takeIf { file(it).exists() }
+
     signingConfigs {
-        // A fixed key for test builds only (it is public on purpose), so a new test build installs over the last
-        // one. Real releases will be signed with a private key kept out of this repository.
+        // A fixed key for test builds only (it is public on purpose), so a new test build installs over the last one.
         getByName("debug") {
             storeFile = file("test-signing.jks")
             storePassword = "netmerge-test"
             keyAlias = "test"
             keyPassword = "netmerge-test"
+        }
+        if (releaseKey != null) create("release") {
+            storeFile = file(releaseKey)
+            storePassword = System.getenv("NETMERGE_STORE_PASSWORD")
+            keyAlias = System.getenv("NETMERGE_KEY_ALIAS")
+            keyPassword = System.getenv("NETMERGE_KEY_PASSWORD")
         }
     }
 
@@ -36,9 +47,9 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("debug")
-            // tests on the phone read the app's own files ("adb shell run-as"); off for a real release
-            isDebuggable = true
+            signingConfig = signingConfigs.getByName(if (releaseKey != null) "release" else "debug")
+            // test builds: tests on the phone read the app's own files ("adb shell run-as"); never in a release
+            isDebuggable = releaseKey == null
         }
     }
 

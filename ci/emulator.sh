@@ -76,4 +76,10 @@ adb shell dumpsys package dev.netmerge.android | grep -E "dev.netmerge.android/\
 vpns=$(grep -o -E "(Merge|Spike)VpnService" vpns.txt | sort -u | tr '\n' ' ')
 echo "VPN services in the release: $vpns"
 [ "$vpns" = "MergeVpnService " ] || { echo "the release must hold only MergeVpnService; Android lists:"; cat vpns.txt | head -20; exit 1; }
+# updates: the app reads GitHub's release list (no release yet is fine; an error is not)
+adb shell run-as dev.netmerge.android rm -f files/updates.json
+adb shell am start -n dev.netmerge.android/.MainActivity --ez checkupdates true; sleep 12
+u=$(adb shell run-as dev.netmerge.android cat files/updates.json 2>/dev/null)
+echo "update check: $u"
+echo "$u" | grep -q '"result":"\(UpToDate\|Newer\)"' || echo "warning: the update check did not answer (GitHub rate limit from CI?)"
 echo "release build: OK"

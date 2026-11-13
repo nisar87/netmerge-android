@@ -182,6 +182,13 @@ fun SettingsScreen(live: Live, openApps: () -> Unit) {
                 Text("Version $v · made by Nisar Ahmad", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
             }
             HorizontalDivider(color = scheme.outlineVariant)
+            val newer = dev.netmerge.android.UpdateState.newer.value
+            NavRow(Icons.Rounded.SystemUpdate, if (newer != null) "Download NetMerge ${newer.name}" else "Check for updates",
+                dev.netmerge.android.UpdateState.status.value ?: "NetMerge also looks by itself once a day") {
+                if (newer != null) dev.netmerge.android.Updates.download(ctx, newer)
+                else scope.launch(kotlinx.coroutines.Dispatchers.IO) { dev.netmerge.android.UpdateState.run(ctx) }
+            }
+            HorizontalDivider(color = scheme.outlineVariant)
             NavRow(Icons.Rounded.Public, "NetMerge for Android on the web", "nisarworks.com: news, help and new versions") {
                 openWeb(ctx, "https://nisarworks.com/products/netmerge-android/")
             }
