@@ -37,6 +37,7 @@ object Diagnostics {
     fun enabled(c: Context) = p(c).getBoolean("on", true)
     fun setEnabled(c: Context, v: Boolean) {
         p(c).edit().putBoolean("on", v).apply()
+        EventLog.add(c, "setting: send diagnostics = $v")
         if (!v) runCatching { crashFile(c).delete() } // nothing waits to go out once it is off
     }
 
@@ -65,10 +66,65 @@ object Diagnostics {
                     e.printStackTrace(java.io.PrintWriter(w))
                     crashFile(app).writeText("${System.currentTimeMillis()} thread ${t.name}\n${w.toString().take(45_000)}")
                 }
-                java.io.File(app.filesDir, "events.log").appendText("${System.currentTimeMillis()} crashed: ${e.javaClass.name}\n")
+                EventLog.error(app, "CRASH in thread ${t.name}", e)
             }
             before?.uncaughtException(t, e)
         }
+        // a crash in the engine (Go) ends the app without a Java stack: the engine writes it to this file
+        val engineCrash = java.io.File(app.filesDir, "engine-crash.txt")
+        runCatching {
+            if (engineCrash.length() > 0) {
+                val text = engineCrash.readText().take(45_000)
+                EventLog.add(app, "CRASH in the engine (details in the crash report): ${text.lineSequence().firstOrNull { it.isNotBlank() }?.take(200)}")
+                if (enabled(app)) crashFile(app).appendText("${System.currentTimeMillis()} engine (Go)\n$text\n")
+                engineCrash.delete()
+            }
+        }
+        app.logged("set the engine's crash file") { mobile.Mobile.setCrashFile(engineCrash.path) }
+        thread(name = "exit-reasons") {
+            EventLog.add(app, "app: process up, version ${runCatching { app.packageManager.getPackageInfo(app.packageName, 0).versionName }.getOrNull()} " +
+                "(code ${Updates.thisCode(app)}), Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}), ${Build.MANUFACTURER} ${Build.MODEL}")
+            app.logged("read why the app ended last time") { exitReasons(app) }
+            maybeSend(app) // a crash or freeze found just now goes out at once
+        }
+    }
+
+    /**
+     * Why the app's process ended before (Android 11 and later keeps this): killed for memory, an "app not
+     * responding", a crash in native code (the engine), stopped by the user or by the system. Each new one is logged;
+     * crashes and freezes also go out as a crash report, with Android's own trace when it has one.
+     */
+    private fun exitReasons(c: Context) {
+        if (Build.VERSION.SDK_INT < 30) return
+        val am = c.getSystemService(android.app.ActivityManager::class.java)
+        val seen = p(c).getLong("exitSeen", 0)
+        val list = am.getHistoricalProcessExitReasons(c.packageName, 0, 10).filter { it.timestamp > seen }.sortedBy { it.timestamp }
+        for (x in list) {
+            val why = when (x.reason) {
+                android.app.ApplicationExitInfo.REASON_ANR -> "not responding (ANR)"
+                android.app.ApplicationExitInfo.REASON_CRASH -> "crash (Java)"
+                android.app.ApplicationExitInfo.REASON_CRASH_NATIVE -> "crash (native: the engine or Android)"
+                android.app.ApplicationExitInfo.REASON_LOW_MEMORY -> "killed: phone low on memory"
+                android.app.ApplicationExitInfo.REASON_EXIT_SELF -> "ended itself"
+                android.app.ApplicationExitInfo.REASON_SIGNALED -> "killed by a signal"
+                android.app.ApplicationExitInfo.REASON_USER_REQUESTED -> "stopped by the user (force stop or similar)"
+                android.app.ApplicationExitInfo.REASON_USER_STOPPED -> "stopped by the user"
+                android.app.ApplicationExitInfo.REASON_DEPENDENCY_DIED -> "something it depends on died"
+                android.app.ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE -> "killed: too much battery or processor"
+                android.app.ApplicationExitInfo.REASON_PERMISSION_CHANGE -> "a permission changed"
+                android.app.ApplicationExitInfo.REASON_INITIALIZATION_FAILURE -> "could not start"
+                android.app.ApplicationExitInfo.REASON_OTHER -> "other (system)"
+                else -> "reason ${x.reason}"
+            }
+            EventLog.add(c, "app: last run ended at ${iso(x.timestamp)}: $why; ${x.description ?: ""}; importance ${x.importance}, " +
+                "memory ${x.pss / 1024} MB")
+            val bad = x.reason == android.app.ApplicationExitInfo.REASON_ANR || x.reason == android.app.ApplicationExitInfo.REASON_CRASH_NATIVE
+            if (bad && enabled(c)) {
+                val trace = runCatching { x.traceInputStream?.use { it.readBytes().toString(Charsets.UTF_8) } }.getOrNull()
+                crashFile(c).appendText("${x.timestamp} $why: ${x.description ?: ""}\n${trace?.take(40_000) ?: "(no trace)"}\n")
+            }
+        }
+        list.lastOrNull()?.let { p(c).edit().putLong("exitSeen", it.timestamp).apply() }
     }
 
     @Volatile private var sending = false
@@ -132,7 +188,7 @@ object Diagnostics {
 
     /** The event log's lines after `since`, the 2 s traffic lines thinned, newest kept if it is too long. */
     private fun logSince(c: Context, since: Long): Pair<String, Long> {
-        val lines = runCatching { java.io.File(c.filesDir, "events.log").readLines() }.getOrDefault(emptyList())
+        val lines = listOf(EventLog.older(c), EventLog.file(c)).flatMap { f -> runCatching { f.readLines() }.getOrDefault(emptyList()) }
         val out = ArrayList<String>()
         var lastStats = 0L
         var upTo = since

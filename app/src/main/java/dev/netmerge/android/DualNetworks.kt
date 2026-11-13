@@ -27,6 +27,8 @@ class DualNetworks(context: Context, private val onChange: (() -> Unit)? = null)
     enum class Kind(val transport: Int) { WIFI(NetworkCapabilities.TRANSPORT_WIFI), MOBILE(NetworkCapabilities.TRANSPORT_CELLULAR) }
 
     private val cm = context.getSystemService(ConnectivityManager::class.java)
+    private val ctx = context.applicationContext
+    private fun log(what: String) = EventLog.add(ctx, "net: $what")
     private val networks = ConcurrentHashMap<Kind, Network>()
     private val callbacks = ConcurrentHashMap<Kind, ConnectivityManager.NetworkCallback>()
     private val validated = ConcurrentHashMap<Kind, Boolean>() // Android checked that it reaches the internet
@@ -46,9 +48,10 @@ class DualNetworks(context: Context, private val onChange: (() -> Unit)? = null)
     fun hold(kind: Kind, on: Boolean) {
         if (!on) {
             val cb = callbacks.remove(kind) ?: return
-            runCatching { cm.unregisterNetworkCallback(cb) }
+            ctx.logged("let go of $kind") { cm.unregisterNetworkCallback(cb) }
+            validated.remove(kind)
             if (networks.remove(kind) != null) onChange?.invoke()
-            Log.i(TAG, "$kind released")
+            log("$kind let go")
             return
         }
         if (callbacks.containsKey(kind)) return
@@ -62,6 +65,7 @@ class DualNetworks(context: Context, private val onChange: (() -> Unit)? = null)
                     if (callbacks[kind] !== this) return // released meanwhile
                     networks[kind] = network
                     Log.i(TAG, "$kind available: ${describe(network)}")
+                    log("$kind up (${cm.getLinkProperties(network)?.interfaceName ?: "?"})")
                     onChange?.invoke()
                 }
 
@@ -70,6 +74,9 @@ class DualNetworks(context: Context, private val onChange: (() -> Unit)? = null)
                     val ok = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
                     if (networks[kind] == network && validated.put(kind, ok) != ok) {
                         Log.i(TAG, "$kind ${if (ok) "has internet" else "has no internet (not validated)"}")
+                        log("$kind ${if (ok) "reaches the internet" else "does not reach the internet (Android's check failed)"}" +
+                            (if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL)) ", sign-in page waiting" else "") +
+                            ", ${caps.linkDownstreamBandwidthKbps / 1000} Mbps down by Android's estimate")
                         onChange?.invoke()
                     }
                 }
@@ -79,22 +86,39 @@ class DualNetworks(context: Context, private val onChange: (() -> Unit)? = null)
                     if (networks[kind] == network) onChange?.invoke()
                 }
 
+                override fun onUnavailable() {
+                    log("$kind not available")
+                }
+
+                override fun onBlockedStatusChanged(network: Network, blocked: Boolean) {
+                    if (callbacks[kind] !== this) return
+                    log("$kind ${if (blocked) "blocked by Android (data saver or background limits)" else "no longer blocked"}")
+                }
+
                 override fun onLost(network: Network) {
                     if (callbacks[kind] !== this) return // released meanwhile
-                    networks.remove(kind, network)
+                    val was = networks.remove(kind, network)
                     validated.remove(kind)
                     Log.i(TAG, "$kind lost")
+                    log("$kind lost${if (was) "" else " (an older one)"}")
                     onChange?.invoke()
                 }
             }
             // registered before asking: Android may answer at once (on another thread) when the network is up
             callbacks[kind] = cb
-            cm.requestNetwork(request, cb)
+            try {
+                cm.requestNetwork(request, cb)
+                log("$kind asked for")
+            } catch (e: Exception) {
+                // e.g. too many requests open: without this the network silently never comes
+                callbacks.remove(kind)
+                EventLog.error(ctx, "ask Android for $kind", e)
+            }
         }
     }
 
     fun stop() {
-        callbacks.values.forEach { runCatching { cm.unregisterNetworkCallback(it) } }
+        callbacks.values.forEach { ctx.logged("let go of a network") { cm.unregisterNetworkCallback(it) } }
         callbacks.clear()
         networks.clear()
     }

@@ -4,6 +4,7 @@
 package split
 
 import (
+	"fmt"
 	"math"
 	"sort"
 	"sync"
@@ -40,12 +41,15 @@ type line struct {
 	rtt                   float64 // smoothed time to open a connection (s); 0 until the first one
 	answers               int     // connections opened (for rtt)
 	busy                  float64 // seconds it has had connections open (judging a slow network needs no 2 MB)
+	mode                  string  // how it is treated now (see modeOf), for the log
 }
 
 // Splitter hands out networks to new connections.
 type Splitter struct {
 	mu    sync.Mutex
 	lines []*line
+	// Note, when set, is told when a network's treatment changes (full share, trickle and why), for the app's log.
+	Note func(string)
 }
 
 const (
@@ -156,6 +160,43 @@ func (s *Splitter) Tick(seconds float64) {
 			l.cap = minCap
 		}
 	}
+	s.noteModes()
+}
+
+// modeOf says how a network is treated now (the same tests as weight, for IPv4 connections).
+func (l *line) modeOf(fastest, quickest float64) string {
+	switch {
+	case l.slowToAnswer(quickest) && !(l.rx.Load() > measured && l.cap >= fastest):
+		return "trickle: slow to answer"
+	case l.rx.Load() <= measured && l.busy < judged:
+		return "learning"
+	case l.cap < slowPart*fastest:
+		return "trickle: much slower"
+	}
+	return "full share"
+}
+
+// noteModes tells Note when a network's treatment changed. Called with s.mu held.
+func (s *Splitter) noteModes() {
+	if s.Note == nil {
+		return
+	}
+	fastest, quickest := s.bests(false)
+	for _, l := range s.lines {
+		m := l.modeOf(fastest, quickest)
+		if m != l.mode {
+			s.Note(fmt.Sprintf("%s: %s (was %s; speed %.0f KB/s, answers in %.0f ms, fastest %.0f KB/s, quickest %.0f ms)",
+				l.Name, m, orNew(l.mode), l.cap/1024, l.rtt*1000, fastest/1024, quickest*1000))
+			l.mode = m
+		}
+	}
+}
+
+func orNew(m string) string {
+	if m == "" {
+		return "new"
+	}
+	return m
 }
 
 // Pick chooses the network for a new connection to an IPv6 (v6) or IPv4 address. ok is false when no network can

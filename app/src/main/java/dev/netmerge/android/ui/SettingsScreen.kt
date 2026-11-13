@@ -29,6 +29,7 @@ import dev.netmerge.android.DualNetworks
 import dev.netmerge.android.Excluded
 import dev.netmerge.android.MergeVpnService
 import dev.netmerge.android.Settings
+import dev.netmerge.android.logged
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -46,7 +47,7 @@ fun SettingsScreen(live: Live, openApps: () -> Unit) {
     var batteryResume by remember { mutableStateOf(Settings.batteryResume(ctx)) }
     // a running (or paused) merge looks at the battery again at once
     fun batteryChanged() {
-        if (live.running || live.paused) runCatching {
+        if (live.running || live.paused) ctx.logged("tell merging the battery setting changed") {
             ctx.startService(Intent(ctx, MergeVpnService::class.java).setAction(MergeVpnService.ACTION_CHECK))
         }
     }
@@ -141,7 +142,7 @@ fun SettingsScreen(live: Live, openApps: () -> Unit) {
         Group {
             NavRow(Icons.Rounded.PowerSettingsNew, "Start automatically",
                 "Opens Android's VPN settings: tap the gear next to NetMerge and turn on \"Always-on VPN\". NetMerge then starts with the phone.") {
-                runCatching { ctx.startActivity(Intent(android.provider.Settings.ACTION_VPN_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                ctx.logged("open Android's VPN settings") { ctx.startActivity(Intent(android.provider.Settings.ACTION_VPN_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
             }
         }
 

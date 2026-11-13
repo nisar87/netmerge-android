@@ -34,6 +34,7 @@ object SpeedTestRun {
 suspend fun runSpeedTest(ctx: Context) = withContext(Dispatchers.IO) {
     if (SpeedTestRun.state.value.running) return@withContext
     SpeedTestRun.state.value = SpeedTest.State(running = true, phase = "Finding Wi-Fi and mobile data")
+    dev.netmerge.android.EventLog.add(ctx, "speed test: begun (merging ${if (dev.netmerge.android.MergeVpnService.running) "on" else "off"})")
     SpeedTestRun.max.value = 100.0
     val n = DualNetworks(ctx)
     n.start()
@@ -51,6 +52,7 @@ suspend fun runSpeedTest(ctx: Context) = withContext(Dispatchers.IO) {
     try {
         if (wifi == null && mobile == null) {
             SpeedTestRun.state.value = SpeedTest.State(phase = "No network to test")
+            dev.netmerge.android.EventLog.add(ctx, "speed test: no network to test")
             return@withContext
         }
         SpeedTest.run(wifi, mobile) { s ->
@@ -68,6 +70,9 @@ suspend fun runSpeedTest(ctx: Context) = withContext(Dispatchers.IO) {
         SpeedTestRun.state.value = st.copy(rows = st.rows + SpeedTest.Row("Mobile data", error = "did not come up: is it on?"))
     }
     val s = SpeedTestRun.state.value
+    dev.netmerge.android.EventLog.add(ctx, "speed test: " + s.rows.joinToString("; ") {
+        "${it.label} %.1f down %.1f up".format(it.down, it.up) + (it.error?.let { e -> " ($e)" } ?: "")
+    } + "; mobile data used %.0f MB".format(s.mobileMB) + (dev.netmerge.android.SpeedTest.lastError?.let { "; last error: ${it.take(150)}" } ?: ""))
     runCatching {
         val rows = JSONArray()
         for (r in s.rows) rows.put(JSONObject().put("label", r.label).put("down", r.down).put("up", r.up).put("error", r.error ?: ""))

@@ -66,6 +66,13 @@ adb shell run-as dev.netmerge.android rm -f files/events.log
 adb shell am start -S -n dev.netmerge.android/.MainActivity --ez merge true
 for i in $(seq 1 40); do adb shell run-as dev.netmerge.android cat files/events.log 2>/dev/null | grep -q started && break; sleep 1; done
 adb shell run-as dev.netmerge.android cat files/events.log | grep -m1 started | cut -c1-160
+# NetMerge's own log has what is needed after a problem: the app, the networks, the service's commands, the engine
+sleep 6
+adb shell run-as dev.netmerge.android cat files/events.log > events.txt
+grep -v "^[0-9]* stats " events.txt | cut -c1-200 | head -30
+for w in "app: process up" "net: WIFI" "net: MOBILE" "command: start" "engine: up" "splitter "; do
+  grep -q "$w" events.txt || { echo "the log has no \"$w\" line"; exit 1; }
+done
 adb shell am instrument -w -r -e class dev.netmerge.probe.ProbeTest#pagesOpen dev.netmerge.probe.test/androidx.test.runner.AndroidJUnitRunner > release.txt; cat release.txt | tail -3
 adb shell dumpsys connectivity | grep -c "VPN CONNECTED" || true
 grep -q "^OK (" release.txt || { echo "pages failed through the release build"; exit 1; }

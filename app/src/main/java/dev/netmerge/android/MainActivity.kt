@@ -97,24 +97,34 @@ private fun App(pending: SnapshotStateList<Intent>, tabRequest: MutableState<Str
             }
         }
     }
-    LaunchedEffect(starting) { if (starting) { delay(30_000); starting = false } }
+    LaunchedEffect(starting) {
+        if (starting) {
+            delay(30_000)
+            if (starting) EventLog.add(ctx, "ui: merging did not come up within 30 s${MergeVpnService.problem?.let { ": $it" } ?: ""}")
+            starting = false
+        }
+    }
 
     fun service(extras: Intent?) = Intent(ctx, MergeVpnService::class.java).apply {
         extras?.extras?.let { putExtras(it) }
         removeExtra("merge")
     }
+    fun launch(extras: Intent?) {
+        if (ctx.logged("start the merging service") { ctx.startForegroundService(service(extras)) } != null) starting = true
+    }
     val consent = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
-        if (r.resultCode == android.app.Activity.RESULT_OK) {
-            ctx.startForegroundService(service(startExtras)); starting = true
-        }
+        EventLog.add(ctx, "ui: VPN permission ${if (r.resultCode == android.app.Activity.RESULT_OK) "given" else "refused"}")
+        if (r.resultCode == android.app.Activity.RESULT_OK) launch(startExtras)
     }
     fun start(extras: Intent?) {
         startExtras = extras
-        val ask = VpnService.prepare(ctx)
-        if (ask != null) consent.launch(ask) else { ctx.startForegroundService(service(extras)); starting = true }
+        val ask = ctx.logged("check the VPN permission") { VpnService.prepare(ctx) }
+        EventLog.add(ctx, "ui: merge on asked${if (extras != null) " (from outside)" else ""}${if (ask != null) ", Android asks for the VPN permission" else ""}")
+        if (ask != null) ctx.logged("ask for the VPN permission") { consent.launch(ask) } else launch(extras)
     }
     fun stop() {
-        ctx.startService(Intent(ctx, MergeVpnService::class.java).setAction(MergeVpnService.ACTION_STOP))
+        EventLog.add(ctx, "ui: merge off asked")
+        ctx.logged("stop the merging service") { ctx.startService(Intent(ctx, MergeVpnService::class.java).setAction(MergeVpnService.ACTION_STOP)) }
         starting = false
     }
     // a start or stop asked for from outside (tests, the quick settings tile)

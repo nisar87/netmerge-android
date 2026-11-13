@@ -31,14 +31,15 @@ object Blocklists {
 
     private fun p(c: Context) = c.getSharedPreferences("settings", Context.MODE_PRIVATE)
     fun on(c: Context) = p(c).getBoolean("blocking", true)
-    fun setOn(c: Context, v: Boolean) = p(c).edit().putBoolean("blocking", v).apply()
+    fun setOn(c: Context, v: Boolean) { p(c).edit().putBoolean("blocking", v).apply(); EventLog.add(c, "setting: ad blocking ${if (v) "on" else "off"}") }
     fun packOn(c: Context, id: String) = p(c).getBoolean("pack-$id", id == "ads" || id == "malware")
-    fun setPack(c: Context, id: String, v: Boolean) = p(c).edit().putBoolean("pack-$id", v).apply()
+    fun setPack(c: Context, id: String, v: Boolean) { p(c).edit().putBoolean("pack-$id", v).apply(); EventLog.add(c, "setting: list $id ${if (v) "on" else "off"}") }
     fun allowed(c: Context): Set<String> = p(c).getStringSet("allowed", emptySet()) ?: emptySet()
     fun allow(c: Context, name: String, v: Boolean) {
         val s = allowed(c).toMutableSet()
         if (v) s += name else s -= name
         p(c).edit().putStringSet("allowed", s).apply()
+        EventLog.add(c, "setting: a site ${if (v) "allowed" else "no longer allowed"} (${s.size} allowed)") // not which: privacy
     }
 
     private fun file(c: Context, id: String) = File(File(c.filesDir, "blocklists").apply { mkdirs() }, "$id.txt")
@@ -53,21 +54,25 @@ object Blocklists {
             if (!force && f.exists() && System.currentTimeMillis() - f.lastModified() < DAY) continue
             for (u in pk.urls) {
                 try {
+                    val t0 = System.currentTimeMillis()
                     val conn = URL(u).openConnection() as HttpURLConnection
                     conn.connectTimeout = 15_000
                     conn.readTimeout = 60_000
-                    if (conn.responseCode != 200) continue
+                    if (conn.responseCode != 200) { EventLog.add(c, "blocking: list ${pk.id} from ${URL(u).host}: HTTP ${conn.responseCode}"); continue }
                     val tmp = File(f.parentFile, "${pk.id}.tmp")
                     conn.inputStream.use { inp -> tmp.outputStream().use { inp.copyTo(it) } }
-                    if (tmp.length() < 1000) { tmp.delete(); continue } // not a list
-                    tmp.renameTo(f)
+                    if (tmp.length() < 1000) { EventLog.add(c, "blocking: list ${pk.id} from ${URL(u).host}: only ${tmp.length()} bytes, not a list"); tmp.delete(); continue }
+                    if (!tmp.renameTo(f)) { EventLog.add(c, "blocking: list ${pk.id}: could not replace the old file"); continue }
                     changed = true
                     Log.i(TAG, "${pk.id} downloaded: ${f.length()} bytes")
+                    EventLog.add(c, "blocking: list ${pk.id} downloaded from ${URL(u).host}, ${f.length() / 1024} KB in ${System.currentTimeMillis() - t0} ms")
                     break
                 } catch (e: Exception) {
                     Log.w(TAG, "${pk.id} from $u: $e")
+                    EventLog.add(c, "blocking: list ${pk.id} from ${URL(u).host} failed: ${e.javaClass.simpleName}: ${e.message?.take(150)}")
                 }
             }
+            if (!f.exists()) EventLog.add(c, "blocking: list ${pk.id} could not be downloaded from any source")
         }
         return changed
     }
@@ -79,6 +84,7 @@ object Blocklists {
         mobile.Mobile.setAllowed(allowed(c).joinToString("\n"))
         mobile.Mobile.setBlocking(on(c))
         Log.i(TAG, "blocking ${if (on(c)) "on" else "off"}: $n names")
+        EventLog.add(c, "blocking: ${if (on(c)) "on" else "off"}, $n names from ${paths.lines().count { it.isNotBlank() }} lists, ${allowed(c).size} sites allowed")
         return n
     }
 }

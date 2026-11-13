@@ -3,10 +3,14 @@
 package tun
 
 import (
+	"errors"
 	"io"
 	"log"
 	"net"
+	"os"
+	"runtime/debug"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -19,6 +23,7 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 
 	"github.com/nisar87/netmerge-android/engine/dnsblock"
+	"github.com/nisar87/netmerge-android/engine/events"
 	"github.com/nisar87/netmerge-android/engine/split"
 )
 
@@ -51,6 +56,7 @@ type Engine struct {
 	connMu sync.Mutex
 	conns  map[net.Conn]int64 // open outgoing connections and the network handle each is bound to
 	drops  atomic.Int64
+	began  time.Time
 }
 
 // Start runs the engine on the VPN's file descriptor.
@@ -60,10 +66,12 @@ func Start(fd int, mtu int, nets []split.Net) (*Engine, error) {
 
 // StartWith is Start with a block list that outlives one engine (the list is loaded once, not at every start).
 func StartWith(fd int, mtu int, nets []split.Net, block *dnsblock.Blocker) (*Engine, error) {
-	e := &Engine{stop: make(chan struct{}), conns: map[net.Conn]int64{}, Block: block, fd: fd}
+	e := &Engine{stop: make(chan struct{}), conns: map[net.Conn]int64{}, Block: block, fd: fd, began: time.Now()}
+	e.Split.Note = func(s string) { events.Addf("splitter %s", s) }
 	e.Split.SetNets(nets)
 	dev, err := fdbased.Open(strconv.Itoa(fd), uint32(mtu), 0)
 	if err != nil {
+		events.Addf("engine: the VPN device could not be opened: %v", err)
 		return nil, err
 	}
 	st, err := core.CreateStack(&core.Config{LinkEndpoint: dev, TransportHandler: e, Options: []option.Option{
@@ -73,10 +81,12 @@ func StartWith(fd int, mtu int, nets []split.Net, block *dnsblock.Blocker) (*Eng
 		option.WithTCPReceiveBufferSize(appSendBuffer),
 	}})
 	if err != nil {
+		events.Addf("engine: the network stack could not be made: %v", err)
 		dev.Close()
 		return nil, err
 	}
 	e.stack, e.dev = st, dev
+	events.Addf("engine: up, mtu %d, networks %s", mtu, describe(nets))
 	go e.learn()
 	return e, nil
 }
@@ -84,6 +94,9 @@ func StartWith(fd int, mtu int, nets []split.Net, block *dnsblock.Blocker) (*Eng
 // Stop ends the engine and closes the VPN.
 func (e *Engine) Stop() {
 	e.once.Do(func() {
+		events.Flush("connections that failed (last minute)")
+		events.Addf("engine: down after %s; %d connections were open, %d failed, %d closed when their network left",
+			events.Since(e.began), e.Open(), e.fails.Load(), e.drops.Load())
 		close(e.stop)
 		if e.stack != nil {
 			// Destroy, not only Close: it also removes the NIC, which stops the reader that waits on the VPN's file
@@ -116,6 +129,7 @@ func closeTun(fd int) {
 // handle) are closed at once: their packets can no longer go anywhere, and without this an app waits a minute or more
 // for a dead connection before it opens a new one (which then goes to a network that works).
 func (e *Engine) SetNets(nets []split.Net) {
+	defer e.recoverPanic("networks")
 	e.Split.SetNets(nets)
 	live := map[int64]bool{}
 	for _, n := range nets {
@@ -133,6 +147,65 @@ func (e *Engine) SetNets(nets []split.Net) {
 		_ = c.Close()
 	}
 	e.drops.Add(int64(len(dead)))
+	events.Addf("engine: networks now %s; %d connections closed (their network left)", describe(nets), len(dead))
+}
+
+// describe: "wifi(v4,v6) mobile(v4)" (no addresses).
+func describe(nets []split.Net) string {
+	if len(nets) == 0 {
+		return "none"
+	}
+	var b strings.Builder
+	for i, n := range nets {
+		if i > 0 {
+			b.WriteByte(' ')
+		}
+		b.WriteString(n.Name + "(")
+		var k []string
+		if n.V4 {
+			k = append(k, "v4")
+		}
+		if n.V6 {
+			k = append(k, "v6")
+		}
+		b.WriteString(strings.Join(k, ",") + ")")
+	}
+	return b.String()
+}
+
+// reason: a failed connection's cause in a word, for the counts in the log.
+func reason(err error) string {
+	var ne net.Error
+	switch {
+	case err == nil:
+		return "none"
+	case errors.As(err, &ne) && ne.Timeout():
+		return "timeout"
+	case errors.Is(err, syscall.ECONNREFUSED):
+		return "refused"
+	case errors.Is(err, syscall.ENETUNREACH):
+		return "netunreachable"
+	case errors.Is(err, syscall.EHOSTUNREACH):
+		return "hostunreachable"
+	case errors.Is(err, syscall.EACCES), errors.Is(err, syscall.EPERM):
+		return "notallowed"
+	case errors.Is(err, os.ErrDeadlineExceeded):
+		return "timeout"
+	case strings.Contains(err.Error(), "bind"):
+		return "bind"
+	}
+	return "other"
+}
+
+// recoverPanic keeps a mistake in one connection from ending the whole app (a Go panic would), and logs it.
+func (e *Engine) recoverPanic(where string) {
+	if r := recover(); r != nil {
+		st := string(debug.Stack())
+		if len(st) > 3000 {
+			st = st[:3000]
+		}
+		events.Addf("engine: PANIC in %s: %v | %s", where, r, strings.ReplaceAll(st, "\n", " | "))
+	}
 }
 
 // Open: outgoing connections open now.
@@ -161,9 +234,11 @@ func (e *Engine) untrack(c net.Conn) {
 func (e *Engine) Fails() int64 { return e.fails.Load() }
 
 func (e *Engine) learn() {
+	defer e.recoverPanic("learn")
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
 	last := time.Now()
+	n := 0
 	for {
 		select {
 		case <-e.stop:
@@ -171,6 +246,9 @@ func (e *Engine) learn() {
 		case now := <-t.C:
 			e.Split.Tick(now.Sub(last).Seconds())
 			last = now
+			if n++; n%60 == 0 {
+				events.Flush("connections that failed (last minute)")
+			}
 		}
 	}
 }
@@ -208,9 +286,15 @@ func (e *Engine) dial(proto string, ip net.IP, port int) (net.Conn, split.Net, e
 		}
 		// (a failed connection is not counted as a slow answer: right after a network comes back its first few fail,
 		// and counting them cut a working network to a trickle; the next try goes to another network anyway)
+		events.Count(proto + "." + n.Name + "." + reason(err))
 		lastErr = err
 	}
 	e.fails.Add(1)
+	if len(tried) == 0 {
+		events.Count(proto + ".nonetwork" + map[bool]string{true: "6", false: "4"}[v6])
+	} else {
+		events.Count(proto + ".allfailed")
+	}
 	if lastErr == nil {
 		lastErr = errNoNetwork
 	}
@@ -230,9 +314,11 @@ func (e *Engine) dialRanked(proto string, ip net.IP, port int) (net.Conn, split.
 			e.track(c, n.Handle)
 			return c, n, nil
 		}
+		events.Count("dns." + n.Name + "." + reason(err))
 		lastErr = err
 	}
 	e.fails.Add(1)
+	events.Count("dns.allfailed")
 	return nil, split.Net{}, lastErr
 }
 
@@ -244,6 +330,7 @@ func (e *Engine) HandleUDP(c adapter.UDPConn) { go e.relayUDP(c) }
 
 // relayTCP relays one TCP connection of an app.
 func (e *Engine) relayTCP(c adapter.TCPConn) {
+	defer e.recoverPanic("tcp")
 	defer c.Close()
 	ip, port := dest(c.ID())
 	if isVirtualDNS(ip) {
@@ -275,6 +362,7 @@ func (e *Engine) upstream() net.IP {
 // relayDNS handles one app's DNS flow: questions for blocked names are answered here; the rest go to the DNS
 // server (the real one when the app asked the VPN's own address).
 func (e *Engine) relayDNS(c adapter.UDPConn, ip net.IP) {
+	defer e.recoverPanic("dns")
 	defer c.Close()
 	if isVirtualDNS(ip) {
 		ip = e.upstream()
@@ -329,6 +417,7 @@ func (e *Engine) relayDNS(c adapter.UDPConn, ip net.IP) {
 
 // relayUDP relays one UDP flow (DNS, QUIC, calls) on one network for its whole life.
 func (e *Engine) relayUDP(c adapter.UDPConn) {
+	defer e.recoverPanic("udp")
 	ip, port := dest(c.ID())
 	if port == 53 {
 		e.relayDNS(c, ip)

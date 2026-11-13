@@ -301,3 +301,43 @@ func TestProvenFastestKeepsShareWhenSlowToAnswer(t *testing.T) {
 		t.Fatalf("fastest Wi-Fi lost its share for answering slowly: %v", got)
 	}
 }
+
+// The log is told when a network's treatment changes (learning, full share, trickle), once per change.
+func TestNoteTellsTreatmentChanges(t *testing.T) {
+	var s Splitter
+	var notes []string
+	s.Note = func(m string) { notes = append(notes, m) }
+	s.SetNets([]Net{{Name: "wifi", V4: true}, {Name: "mobile", V4: true}})
+	wrx, _, _ := s.Counter("wifi")
+	mrx, _, _ := s.Counter("mobile")
+	s.Tick(1)
+	if len(notes) != 2 {
+		t.Fatalf("first tick: %q", notes)
+	}
+	for i := 0; i < 30; i++ {
+		wrx.Add(8_000_000)
+		mrx.Add(100_000)
+		s.Tick(1)
+	}
+	joined := ""
+	for _, n := range notes {
+		joined += n + "\n"
+	}
+	if !contains(joined, "wifi: full share") || !contains(joined, "mobile: trickle: much slower") {
+		t.Fatalf("notes:\n%s", joined)
+	}
+	before := len(notes)
+	s.Tick(1)
+	if len(notes) != before {
+		t.Fatalf("a tick without change added notes: %q", notes[before:])
+	}
+}
+
+func contains(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}
