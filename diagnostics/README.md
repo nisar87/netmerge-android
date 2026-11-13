@@ -15,8 +15,10 @@ Checked from a browser: adding a report gives 200; reading, an unknown field or 
 
 ## Who reads them
 
-Nobody has to open the console: the **Diagnostics** workflow (`.github/workflows/diagnostics.yml`, daily and by hand)
+Nobody has to open the console: `diagnostics/read.sh [days]`, run by a daily scheduled Claude task, makes a new key
+pair, starts the **Diagnostics** workflow (`.github/workflows/diagnostics.yml`) with the public half, and the workflow
 reads the reports with the CI service account (`netmerge-ci@netmerge-tests`, Cloud Datastore Viewer on `netmerge-app`,
-no key file) and keeps them on the branch `diagnostics-data` (one commit, replaced each run), **encrypted** with `reports-public.pem`: this repository is
-public, and its workflow log shows only counts. A scheduled Claude task holds the private key, runs
-`diagnostics/read.sh key.pem [days]` each day, looks for bugs in the reports, fixes them and releases a new version.
+no key file), encrypts them with that key and leaves them on the branch `diagnostics-data` (one commit, replaced each
+run). This repository is public: its workflow log shows only counts, and no lasting key exists that opens a run (the
+private half lives only while read.sh runs). The task then looks for bugs in the reports, fixes them and releases a new
+version.

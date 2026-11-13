@@ -114,6 +114,8 @@ object Diagnostics {
                 android.app.ApplicationExitInfo.REASON_PERMISSION_CHANGE -> "a permission changed"
                 android.app.ApplicationExitInfo.REASON_INITIALIZATION_FAILURE -> "could not start"
                 android.app.ApplicationExitInfo.REASON_OTHER -> "other (system)"
+                15 -> "an app setting changed (REASON_PACKAGE_STATE_CHANGE)"
+                16 -> "the app was updated or reinstalled"
                 else -> "reason ${x.reason}"
             }
             EventLog.add(c, "app: last run ended at ${iso(x.timestamp)}: $why; ${x.description ?: ""}; importance ${x.importance}, " +

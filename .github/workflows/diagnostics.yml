@@ -1,7 +1,8 @@
 # Diagnostics: reads the reports the app sent (Firestore, project netmerge-app) and keeps them, encrypted, on the
-# branch "diagnostics-data" (one commit, replaced each run): this repository is public, so only the holder of the
-# private key (diagnostics/README.md) can read them. The workflow's log shows counts only. (A branch, not an artifact:
-# the scheduled reader reaches GitHub's git but not the storage artifacts are downloaded from.)
+# branch "diagnostics-data" (one commit, replaced each run). This repository is public, so the reports are encrypted
+# with a public key the reader passes in (diagnostics/read.sh makes a new key pair for every run and keeps the private
+# half only in memory): nobody holds a key that opens older runs. The log shows counts only. (A branch, not an
+# artifact: the reader reaches GitHub's git but not the storage artifacts are downloaded from.)
 name: Diagnostics
 on:
   workflow_dispatch:
@@ -9,8 +10,9 @@ on:
       days:
         description: "Reports of the last N days"
         default: "2"
-  schedule:
-    - cron: "23 1 * * *" # daily
+      pubkey:
+        description: "The reader's public key (PEM, base64)"
+        required: true
 permissions:
   contents: write # the diagnostics-data branch
   id-token: write # GitHub proves who it is to Google (no key file)
@@ -32,10 +34,14 @@ jobs:
           DAYS: ${{ github.event.inputs.days }}
         run: python3 diagnostics/fetch.py | tee count.txt
       - name: Encrypt them
+        env:
+          PUBKEY: ${{ github.event.inputs.pubkey }}
         run: |
           mkdir out
+          echo "$PUBKEY" | base64 -d > reader.pem
+          openssl pkey -pubin -in reader.pem -noout -text | head -1
           openssl rand -out k.bin 32
-          openssl pkeyutl -encrypt -pubin -inkey diagnostics/reports-public.pem -pkeyopt rsa_padding_mode:oaep -in k.bin -out out/key.enc
+          openssl pkeyutl -encrypt -pubin -inkey reader.pem -pkeyopt rsa_padding_mode:oaep -in k.bin -out out/key.enc
           gzip -9 reports.jsonl
           openssl enc -aes-256-cbc -pbkdf2 -salt -pass file:k.bin -in reports.jsonl.gz -out out/reports.enc
           cp count.txt out/
