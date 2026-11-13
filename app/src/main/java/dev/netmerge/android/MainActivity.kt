@@ -50,6 +50,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Diagnostics.init(this)
+        // a waiting crash report, or the log every few hours on Wi-Fi (test scripts: --ez senddiagnostics true sends now)
+        Diagnostics.maybeSend(this, force = intent.getBooleanExtra("senddiagnostics", false))
         enableEdgeToEdge()
         if (Build.VERSION.SDK_INT >= 33) requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), 3)
         if (savedInstanceState == null && intent.hasExtra("merge")) pending += Intent(intent)
@@ -66,6 +69,7 @@ class MainActivity : ComponentActivity() {
         intent.getStringExtra("tab")?.let { tabRequest.value = it }
         if (intent.getBooleanExtra("speedtest", false)) { tabRequest.value = "test"; speedTest.value = true }
         if (intent.getBooleanExtra("checkupdates", false)) checkUpdates.value = true
+        if (intent.getBooleanExtra("senddiagnostics", false)) Diagnostics.maybeSend(this, force = true)
     }
 }
 

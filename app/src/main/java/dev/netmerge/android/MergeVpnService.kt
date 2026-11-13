@@ -26,6 +26,7 @@ class MergeVpnService : VpnService() {
     @Volatile private var generation = 0 // each start gets its own number; threads of an older start stop
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Diagnostics.init(this) // a crash in the service is kept too (Always-on starts it without the screen)
         if (intent?.action == ACTION_STOP) {
             stopMerging()
             stopSelf(startId) // not stopSelf(): a start sent right after this stop must still run
@@ -277,6 +278,7 @@ class MergeVpnService : VpnService() {
                 val blocked = runCatching { org.json.JSONObject(mobile.Mobile.blockStats()).getLong("blocked") }.getOrDefault(lastBlocked)
                 Usage.addBlocked(this, if (blocked >= lastBlocked) blocked - lastBlocked else blocked)
                 lastBlocked = blocked
+                if (tick % 1800 == 900) Diagnostics.maybeSend(this) // every hour while merging (sends when due, on Wi-Fi)
                 if (tick++ % 2 == 0) {
                     val total = all.sumOf { it.getLong("rx") + it.getLong("tx") }.toDouble()
                     val parts = all.filter { total > 0 }.joinToString(" · ") {
@@ -381,6 +383,7 @@ class MergeVpnService : VpnService() {
         runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
         Log.i(TAG, "ENGINE stopped")
         event("stopped")
+        Diagnostics.maybeSend(this)
     }
 
     /** Events also go to a file: the phone's log keeps only a little (seen on a Galaxy S26 Ultra: lines were gone

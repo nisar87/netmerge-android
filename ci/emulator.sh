@@ -82,4 +82,10 @@ adb shell am start -n dev.netmerge.android/.MainActivity --ez checkupdates true;
 u=$(adb shell run-as dev.netmerge.android cat files/updates.json 2>/dev/null)
 echo "update check: $u"
 echo "$u" | grep -q '"result":"\(UpToDate\|Newer\)"' || echo "warning: the update check did not answer (GitHub rate limit from CI?)"
+# diagnostics: on by default; a report must reach the database (the rules accept it: answer 200)
+adb shell run-as dev.netmerge.android rm -f files/diagnostics.log
+adb shell am start -n dev.netmerge.android/.MainActivity --ez senddiagnostics true; sleep 15
+d=$(adb shell run-as dev.netmerge.android cat files/diagnostics.log 2>/dev/null)
+echo "diagnostics: $d"
+echo "$d" | grep -q "sent=200" || { echo "the diagnostics report was not accepted"; exit 1; }
 echo "release build: OK"

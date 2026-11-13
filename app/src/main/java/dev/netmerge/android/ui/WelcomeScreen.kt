@@ -8,7 +8,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.foundation.clickable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,8 +37,24 @@ fun WelcomeScreen(onDone: () -> Unit) {
         Point(Icons.Rounded.DataUsage, "You stay in control",
             "See what each network carries, set a daily limit for mobile data, leave apps out.")
         Point(Icons.Rounded.VpnKey, "Android will ask once",
-            "NetMerge works as a VPN on your phone. Nothing is sent to us or anyone else: your traffic goes straight out on your own networks.")
-        Spacer(Modifier.height(28.dp))
+            "NetMerge works as a VPN on your phone. Your traffic goes straight out on your own networks, never through us.")
+        val ctx = androidx.compose.ui.platform.LocalContext.current
+        var diag by remember { mutableStateOf(dev.netmerge.android.Diagnostics.enabled(ctx)) }
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable {
+                diag = !diag; dev.netmerge.android.Diagnostics.setEnabled(ctx, diag)
+            }.padding(vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Checkbox(checked = diag, onCheckedChange = { diag = it; dev.netmerge.android.Diagnostics.setEnabled(ctx, it) })
+            Spacer(Modifier.width(4.dp))
+            Column {
+                Text("Send diagnostics to help fix bugs", style = MaterialTheme.typography.titleSmall)
+                Text("NetMerge's own log, settings, phone model and crashes, on Wi-Fi. Never the sites or apps you use. You can turn it off in Settings.",
+                    style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+            }
+        }
+        Spacer(Modifier.height(20.dp))
         Button(onClick = onDone, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp)) {
             Text("Get started", style = MaterialTheme.typography.titleMedium)
         }

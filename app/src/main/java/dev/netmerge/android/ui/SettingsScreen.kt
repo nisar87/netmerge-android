@@ -165,6 +165,17 @@ fun SettingsScreen(live: Live, openApps: () -> Unit) {
             }
         }
 
+        Section("Diagnostics")
+        Group {
+            var diag by remember { mutableStateOf(dev.netmerge.android.Diagnostics.enabled(ctx)) }
+            val sent = dev.netmerge.android.Diagnostics.lastSent(ctx)
+            SwitchRow(Icons.Rounded.BugReport, "Send diagnostics",
+                "Helps fix bugs: NetMerge's own log (starts, stops, network changes, speeds; never the sites or apps " +
+                    "you use), settings, phone model and crashes, a few times a day on Wi-Fi." +
+                    if (diag && sent > 0) " Last sent " + android.text.format.DateUtils.getRelativeTimeSpanString(sent) + "." else "",
+                diag) { diag = it; dev.netmerge.android.Diagnostics.setEnabled(ctx, it) }
+        }
+
         Section("About")
         Group {
             Column(Modifier.padding(16.dp)) {
@@ -174,7 +185,8 @@ fun SettingsScreen(live: Live, openApps: () -> Unit) {
                     "NetMerge runs a VPN on the phone that sends each new connection out on Wi-Fi or mobile data, more " +
                         "of them on the faster one. Downloads, app stores, browsers and streaming open many connections " +
                         "and get faster; one single connection cannot be faster than one network. Mobile data used " +
-                        "while merging counts against your plan. Nothing leaves the phone except your own traffic.",
+                        "while merging counts against your plan. Your traffic goes straight out on your own networks; with " +
+                        "diagnostics on, NetMerge also sends its own log (see above).",
                     style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(10.dp))
