@@ -1,6 +1,7 @@
-# Diagnostics: reads the reports the app sent (Firestore, project netmerge-app) and keeps them as an artifact,
-# encrypted: this repository is public, so only the holder of the private key (diagnostics/README.md) can read them.
-# The workflow's log shows counts only.
+# Diagnostics: reads the reports the app sent (Firestore, project netmerge-app) and keeps them, encrypted, on the
+# branch "diagnostics-data" (one commit, replaced each run): this repository is public, so only the holder of the
+# private key (diagnostics/README.md) can read them. The workflow's log shows counts only. (A branch, not an artifact:
+# the scheduled reader reaches GitHub's git but not the storage artifacts are downloaded from.)
 name: Diagnostics
 on:
   workflow_dispatch:
@@ -11,7 +12,7 @@ on:
   schedule:
     - cron: "23 1 * * *" # daily
 permissions:
-  contents: read
+  contents: write # the diagnostics-data branch
   id-token: write # GitHub proves who it is to Google (no key file)
 jobs:
   fetch:
@@ -39,8 +40,12 @@ jobs:
           openssl enc -aes-256-cbc -pbkdf2 -salt -pass file:k.bin -in reports.jsonl.gz -out out/reports.enc
           cp count.txt out/
           shred -u k.bin reports.jsonl.gz
-      - uses: actions/upload-artifact@v4
-        with:
-          name: reports
-          path: out/
-          retention-days: 7
+      - name: Keep them on the diagnostics-data branch (replaced, not added to)
+        run: |
+          cd out
+          git init -q -b diagnostics-data
+          git config user.name "NetMerge diagnostics"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Diagnostics reports, encrypted ($(cat count.txt))"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" diagnostics-data
