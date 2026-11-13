@@ -86,7 +86,7 @@ object SpeedTest {
      * calls now(Mbps) about 4 times a second. Returns (Mbps after the first 2 s, the bytes moved on these networks).
      */
     /** The last error of the last transfer (shown when a direction got nothing). */
-    @Volatile private var lastError: String? = null
+    @Volatile var lastError: String? = null
 
     private fun transfer(nets: List<Pair<Network, Int>>, upload: Boolean, secs: Double, now: (Double) -> Unit): Pair<Double, Map<Network, Long>> {
         val bytes = AtomicLong()

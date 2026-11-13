@@ -56,20 +56,20 @@ object Usage {
 object Settings {
     private fun p(ctx: Context) = ctx.getSharedPreferences("settings", Context.MODE_PRIVATE)
     fun onDemand(ctx: Context) = p(ctx).getBoolean("mobileOnDemand", false)
-    fun setOnDemand(ctx: Context, v: Boolean) = p(ctx).edit().putBoolean("mobileOnDemand", v).apply()
+    fun setOnDemand(ctx: Context, v: Boolean) { p(ctx).edit().putBoolean("mobileOnDemand", v).apply(); EventLog.add(ctx, "setting: mobile data only when it helps = $v") }
     /** Mobile data may be used for merging while roaming (off: roaming abroad can cost a lot). */
     fun roaming(ctx: Context) = p(ctx).getBoolean("mobileRoaming", false)
-    fun setRoaming(ctx: Context, v: Boolean) = p(ctx).edit().putBoolean("mobileRoaming", v).apply()
+    fun setRoaming(ctx: Context, v: Boolean) { p(ctx).edit().putBoolean("mobileRoaming", v).apply(); EventLog.add(ctx, "setting: mobile data while roaming = $v") }
     /** Daily limit for mobile data used by merging, in MB; 0 = no limit. */
     fun limitMB(ctx: Context) = p(ctx).getInt("mobileLimitMB", 0)
-    fun setLimitMB(ctx: Context, v: Int) = p(ctx).edit().putInt("mobileLimitMB", v).apply()
+    fun setLimitMB(ctx: Context, v: Int) { p(ctx).edit().putInt("mobileLimitMB", v).apply(); EventLog.add(ctx, "setting: daily limit for mobile data = $v MB") }
     val limits = intArrayOf(0, 500, 1000, 2000, 5000)
     /** Merging pauses when the battery falls to this level (%); 0 = never. */
     fun batteryStop(ctx: Context) = p(ctx).getInt("batteryStop", 0)
-    fun setBatteryStop(ctx: Context, v: Int) = p(ctx).edit().putInt("batteryStop", v).apply()
+    fun setBatteryStop(ctx: Context, v: Int) { p(ctx).edit().putInt("batteryStop", v).apply(); EventLog.add(ctx, "setting: pause at battery $v%") }
     /** A pause for the battery ends when the battery has charged back to this level (%). */
     fun batteryResume(ctx: Context) = p(ctx).getInt("batteryResume", 50)
-    fun setBatteryResume(ctx: Context, v: Int) = p(ctx).edit().putInt("batteryResume", v).apply()
+    fun setBatteryResume(ctx: Context, v: Int) { p(ctx).edit().putInt("batteryResume", v).apply(); EventLog.add(ctx, "setting: carry on at battery $v%") }
     val batteryStops = intArrayOf(0, 10, 15, 20, 25, 30, 40)
     val batteryResumes = intArrayOf(30, 40, 50, 60, 80, 90)
 }
@@ -81,5 +81,6 @@ object Excluded {
         val now = get(c).toMutableSet()
         if (on) now += pkg else now -= pkg
         p(c).edit().putStringSet("excludedApps", now).apply()
+        EventLog.add(c, "setting: an app ${if (on) "left out of" else "back in"} merging (${now.size} left out)") // not which: privacy
     }
 }

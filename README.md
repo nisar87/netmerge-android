@@ -32,7 +32,10 @@ when both networks are fast; a network dropping mid-download stalls it for under
 - **Apps left out of merging**, for apps that do not work with a VPN.
 - **Starts by itself** after a restart with Android's Always-on VPN; a **quick settings tile**; a notification with the
   live speed.
-- **Nothing leaves the phone** except your own traffic: no account, no servers of ours, no tracking.
+- **Your traffic is yours:** it goes straight out on your own networks, never through a server of ours; no account,
+  no ads, no tracking.
+- **Diagnostics** (a switch, on by default, on the welcome screen and in Settings), so bugs on other people's phones
+  can be found and fixed: see [Diagnostics](#diagnostics).
 
 ## Screenshots
 
@@ -47,6 +50,23 @@ On a Galaxy S26 Ultra (Android 17), from the phone tests.
 | <img src="docs/screenshots/speed-test.png" width="240"> | <img src="docs/screenshots/blocking-dark.png" width="240"> | <img src="docs/screenshots/settings.png" width="240"> |
 
 More in [docs/screenshots](docs/screenshots): dark mode, the speed test before it runs, the rest of the settings.
+
+## Diagnostics
+
+With **Send diagnostics** on (the default; off in Settings or on the welcome screen), NetMerge sends a small report
+every 6 hours or so, on Wi-Fi only:
+
+- NetMerge's own event log: starts and stops, network changes, mobile data held or let go, battery pauses, and what
+  each network carried (one line a minute);
+- its settings (apps left out and allowed sites as a count, not by name);
+- the phone's make, model and Android version, NetMerge's version, and a random number made at install that tells one
+  phone's reports from another's;
+- after a crash: where in NetMerge it crashed, sent at the next start.
+
+Never sent: the sites or apps you use, addresses, your traffic, your name or account, any phone identifier. Reports go
+to the project's own Firebase database (`netmerge-app`), which the app may only add to: it cannot read anything back,
+not even its own reports ([diagnostics/firestore.rules](diagnostics/firestore.rules)). Turning it off deletes a crash
+report that has not gone out yet.
 
 ## What is in it
 

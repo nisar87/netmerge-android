@@ -1,0 +1,21 @@
+rules_version = '2';
+// NetMerge diagnostics: the app may only add reports (no reading, changing or deleting, not even its own); the
+// project's owner reads them in the Firebase console. Each report is a few fields of text, size-limited.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /reports/{id} {
+      allow create: if request.resource.data.keys().hasOnly(
+            ['install', 'app', 'code', 'device', 'android', 'kind', 'settings', 'engine', 'log', 'crash', 'at'])
+        && request.resource.data.install is string && request.resource.data.install.size() <= 64
+        && request.resource.data.kind in ['log', 'crash']
+        && request.resource.data.log is string && request.resource.data.log.size() <= 200000
+        && (!('crash' in request.resource.data) || request.resource.data.crash.size() <= 50000)
+        && (!('settings' in request.resource.data) || request.resource.data.settings.size() <= 4000)
+        && (!('engine' in request.resource.data) || request.resource.data.engine.size() <= 8000);
+      allow read, update, delete: if false;
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

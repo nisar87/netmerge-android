@@ -74,7 +74,8 @@ object Updates {
 
     /** Opens the APK in the browser, which downloads it; tapping the download installs it over this version. */
     fun download(ctx: Context, r: Release) {
-        runCatching {
+        EventLog.add(ctx, "updates: download of ${r.name} opened in the browser")
+        ctx.logged("open the download in the browser") {
             ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(r.apk)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
     }
@@ -90,6 +91,11 @@ object UpdateState {
     fun run(ctx: Context) {
         status.value = "Checking…"
         val r = Updates.check(ctx)
+        EventLog.add(ctx, "updates: " + when (r) {
+            is Updates.Result.Newer -> "version ${r.release.name} (code ${r.release.code}) is available"
+            Updates.Result.UpToDate -> "up to date"
+            is Updates.Result.Failed -> "check failed: ${r.why.take(150)}"
+        })
         when (r) {
             is Updates.Result.Newer -> { newer.value = r.release; status.value = "Version ${r.release.name} is ready: tap to download" }
             Updates.Result.UpToDate -> { newer.value = null; status.value = "You have the newest version" }

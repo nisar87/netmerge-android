@@ -26,6 +26,11 @@ class MergeVpnService : VpnService() {
     @Volatile private var generation = 0 // each start gets its own number; threads of an older start stop
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Diagnostics.init(this) // a crash in the service is kept too (Always-on starts it without the screen)
+        // who asked: the app or tile (no action), Always-on (Android's own action, or none after a restart), a stop
+        event("command: ${intent?.action?.substringAfterLast('.') ?: if (intent == null) "restart by Android" else "start"}" +
+            (intent?.extras?.keySet()?.takeIf { it.isNotEmpty() }?.let { " extras=${it.sorted()}" } ?: "") +
+            " active=$active paused=$batteryPaused running=$running")
         if (intent?.action == ACTION_STOP) {
             stopMerging()
             stopSelf(startId) // not stopSelf(): a start sent right after this stop must still run
@@ -43,7 +48,7 @@ class MergeVpnService : VpnService() {
         if (intent?.hasExtra("limitmb") == true) Settings.setLimitMB(this, intent.getIntExtra("limitmb", 0))
         if (intent?.hasExtra("blocking") == true) {
             Blocklists.setOn(this, intent.getBooleanExtra("blocking", true))
-            if (active) thread { runCatching { Blocklists.apply(this) } }
+            if (active) thread { logged("load the block lists") { Blocklists.apply(this) } }
         }
         intent?.getStringExtra("exclude")?.let { Excluded.set(this, it, true) }
         intent?.getStringExtra("include")?.let { Excluded.set(this, it, false) }
@@ -74,16 +79,16 @@ class MergeVpnService : VpnService() {
             override fun onReceive(c: Context, i: Intent) = batteryChanged(i)
         }
         batteryReceiver = r
-        runCatching { registerReceiver(r, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) }
+        logged("watch the battery") { registerReceiver(r, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) }
     }
 
     private fun unwatchBattery() {
-        batteryReceiver?.let { runCatching { unregisterReceiver(it) } }
+        batteryReceiver?.let { logged("stop watching the battery") { unregisterReceiver(it) } }
         batteryReceiver = null
     }
 
     private fun checkBattery() {
-        runCatching { registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) }.getOrNull()?.let { batteryChanged(it) }
+        logged("read the battery") { registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) }?.let { batteryChanged(it) }
     }
 
     /**
@@ -97,6 +102,7 @@ class MergeVpnService : VpnService() {
         val scale = i.getIntExtra(BatteryManager.EXTRA_SCALE, 100).coerceAtLeast(1)
         if (raw < 0 || !active) return
         val level = raw * 100 / scale
+        if (level != batteryLevel && (level % 10 == 0 || batteryLevel < 0)) event("battery: $level%")
         batteryLevel = level
         val stopAt = Settings.batteryStop(this)
         val resumeAt = resumeLevel(this)
@@ -115,7 +121,8 @@ class MergeVpnService : VpnService() {
         batteryPaused = true
         Usage.flush(this)
         generation++ // ends the stats thread and any start still under way
-        runCatching { mobile.Mobile.stop() }
+        logged("stop the engine for the battery pause") { mobile.Mobile.stop() }
+        drainEngine()
         running = false
         nets?.stop()
         nets = null
@@ -160,7 +167,7 @@ class MergeVpnService : VpnService() {
     private fun showStatus(text: String) {
         if (text == shown) return
         shown = text
-        runCatching { getSystemService(NotificationManager::class.java).notify(1, notification(text)) }
+        logged("update the notification") { getSystemService(NotificationManager::class.java).notify(1, notification(text)) }
     }
 
     /** A merging VPN must run in the foreground (with its notification), or the phone throttles it when the
@@ -172,6 +179,7 @@ class MergeVpnService : VpnService() {
             else startForeground(1, n)
         } catch (e: Exception) {
             Log.e(TAG, "ENGINE could not run in the foreground: $e")
+            EventLog.error(this, "run in the foreground (the phone may slow merging down)", e)
         }
     }
 
@@ -181,15 +189,21 @@ class MergeVpnService : VpnService() {
         } catch (e: Exception) {
             Log.e(TAG, "ENGINE start failed", e)
             event("start failed: $e")
+            EventLog.error(this, "start merging", e)
+            drainEngine()
             failed(gen)
         }
     }
 
     private fun startMerging(gen: Int) {
+        val t0 = SystemClock.elapsedRealtime()
         val n = DualNetworks(this) { networksChanged() }.also { nets = it; it.start() }
-        n.awaitBoth(15_000) // start with what is there; a network that comes later joins by itself
-        if (stopped || gen != generation) return // stopped while waiting for the networks
-        runCatching { Blocklists.apply(this) } // the lists already on the phone; fresh ones are fetched below
+        val both = n.awaitBoth(15_000) // start with what is there; a network that comes later joins by itself
+        event("networks found in ${SystemClock.elapsedRealtime() - t0} ms: " +
+            DualNetworks.Kind.values().joinToString { "$it ${if (n.network(it) == null) "not up" else if (n.usable(it)) "usable" else "up, no internet"}" } +
+            if (both) "" else " (going on with what is there)")
+        if (stopped || gen != generation) { event("start: given up, stop asked meanwhile"); return }
+        logged("load the block lists") { Blocklists.apply(this) } // the lists already on the phone; fresh ones are fetched below
         val pfd = Builder()
             .setSession("NetMerge")
             .setMtu(mtu)
@@ -204,22 +218,25 @@ class MergeVpnService : VpnService() {
             .apply {
                 // apps the user left out of merging use the phone's normal network
                 for (pkg in Excluded.get(this@MergeVpnService)) runCatching { addDisallowedApplication(pkg) }
+                    .onFailure { event("an app left out is no longer installed: skipped") }
             }
             .setUnderlyingNetworks(n.all().toTypedArray())
             .establish()
         if (pfd == null) {
             Log.e(TAG, "ENGINE the VPN could not be started (permission?)")
-            event("start failed: no VPN (permission?)")
+            event("start failed: no VPN (permission?) prepared=${VpnService.prepare(this) == null}")
             failed(gen)
             return
         }
         val json = n.engineJson()
         val fd = pfd.detachFd().toLong()
         val err = runCatching { mobile.Mobile.start(fd, mtu.toLong(), json) }.exceptionOrNull()
+        drainEngine()
         if (err != null) {
             // "already running": an engine of an earlier start was still there; stop it and try once more
-            runCatching { mobile.Mobile.stop() }
+            logged("stop an engine left from before") { mobile.Mobile.stop() }
             val again = runCatching { mobile.Mobile.start(fd, mtu.toLong(), json) }.exceptionOrNull()
+            drainEngine()
             event("start: engine said ${err.message}; ${if (again == null) "started on the second try" else "second try failed: ${again.message}"}")
             if (again != null) {
                 Log.e(TAG, "ENGINE failed to start: $again")
@@ -230,7 +247,9 @@ class MergeVpnService : VpnService() {
         }
         if (stopped || gen != generation) {
             // stopped while starting: do not leave this engine running
-            runCatching { mobile.Mobile.stop() }
+            event("start: a stop came while starting; engine closed again")
+            logged("stop the engine") { mobile.Mobile.stop() }
+            drainEngine()
             return
         }
         running = true
@@ -238,7 +257,7 @@ class MergeVpnService : VpnService() {
         retried = false
         problem = null
         thread(name = "blocklists") {
-            if (runCatching { Blocklists.refresh(this) }.getOrDefault(false)) runCatching { Blocklists.apply(this) }
+            if (logged("download the block lists") { Blocklists.refresh(this) } == true) logged("load the block lists") { Blocklists.apply(this) }
         }
         MergeTileService.update(this)
         Log.i(TAG, "ENGINE started with $json")
@@ -249,9 +268,12 @@ class MergeVpnService : VpnService() {
             var lastMobile = 0L
             var lastBlocked = 0L
             var tick = 0
+            var errors = 0
             // a stop followed at once by a new start must end this loop: it belongs to the old networks
             while (!stopped && gen == generation) {
                 SystemClock.sleep(2000)
+                try {
+                drainEngine()
                 val s = mobile.Mobile.stats()
                 if (s.isEmpty()) continue
                 Log.i(TAG, "ENGINE $s")
@@ -277,6 +299,7 @@ class MergeVpnService : VpnService() {
                 val blocked = runCatching { org.json.JSONObject(mobile.Mobile.blockStats()).getLong("blocked") }.getOrDefault(lastBlocked)
                 Usage.addBlocked(this, if (blocked >= lastBlocked) blocked - lastBlocked else blocked)
                 lastBlocked = blocked
+                if (tick % 1800 == 900) Diagnostics.maybeSend(this) // every hour while merging (sends when due, on Wi-Fi)
                 if (tick++ % 2 == 0) {
                     val total = all.sumOf { it.getLong("rx") + it.getLong("tx") }.toDouble()
                     val parts = all.filter { total > 0 }.joinToString(" · ") {
@@ -288,6 +311,11 @@ class MergeVpnService : VpnService() {
                         parts.ifEmpty { null },
                         if (Blocklists.on(this)) "${Usage.blockedToday(this)} ads blocked today" else null,
                     ).joinToString(" · "))
+                }
+                } catch (e: Exception) {
+                    // one bad round must not end merging (an uncaught error here would end the app); the first few
+                    // are logged, not every 2 s
+                    if (errors++ < 5) EventLog.error(this, "merging's 2 s round", e)
                 }
             }
         }
@@ -307,10 +335,14 @@ class MergeVpnService : VpnService() {
         val wifi = n.usable(DualNetworks.Kind.WIFI)
         val held = n.held(DualNetworks.Kind.MOBILE)
         val limit = Settings.limitMB(this).toLong() * 1_000_000
-        overLimit = limit > 0 && Usage.mobileToday(this) >= limit
+        val over = limit > 0 && Usage.mobileToday(this) >= limit
+        if (over != overLimit) event("daily limit for mobile data: ${if (over) "reached" else "not reached"} (${Usage.mobileToday(this) / 1_000_000} of ${limit / 1_000_000} MB)")
+        overLimit = over
         onDemand = Settings.onDemand(this)
         if (bytesPerSecond > BUSY) { busyFor++; quietFor = 0 } else if (bytesPerSecond < QUIET) { quietFor++; busyFor = 0 } else { busyFor = 0; quietFor = 0 }
-        roamingNow = roaming()
+        val r = roaming()
+        if (r != roamingNow) event("roaming: ${if (r) "yes" else "no"} (mobile data while roaming ${if (Settings.roaming(this)) "allowed" else "not allowed"})")
+        roamingNow = r
         val (want, why) = when {
             !wifi -> true to "no Wi-Fi"
             roamingNow && !Settings.roaming(this) -> false to "roaming"
@@ -335,8 +367,8 @@ class MergeVpnService : VpnService() {
         val n = nets ?: return
         if (!running) return
         val json = n.engineJson()
-        runCatching { mobile.Mobile.setNetworks(json) }
-        runCatching { setUnderlyingNetworks(n.all().toTypedArray()) }
+        logged("give the engine the networks") { mobile.Mobile.setNetworks(json) }
+        logged("tell Android the networks") { setUnderlyingNetworks(n.all().toTypedArray()) }
         Log.i(TAG, "ENGINE networks now $json")
         event("networks $json")
     }
@@ -349,6 +381,7 @@ class MergeVpnService : VpnService() {
         nets?.stop()
         nets = null
         if (retried || stopped || gen != generation) {
+            event("start: given up${if (stopped) " (stop asked)" else " after the second try"}")
             active = false
             unwatchBattery()
             if (!stopped) problem = "NetMerge could not start. Check that Wi-Fi or mobile data is on, then try again."
@@ -372,36 +405,49 @@ class MergeVpnService : VpnService() {
         active = false
         batteryPaused = false
         unwatchBattery()
-        runCatching { mobile.Mobile.stop() } // always: an engine of a start that had not finished must not be left running
+        logged("stop the engine") { mobile.Mobile.stop() } // always: an engine of a start that had not finished must not be left running
+        drainEngine()
         running = false
         startedAt = 0
         MergeTileService.update(this)
         nets?.stop()
         nets = null
-        runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+        logged("leave the foreground") { stopForeground(STOP_FOREGROUND_REMOVE) }
         Log.i(TAG, "ENGINE stopped")
         event("stopped")
+        Diagnostics.maybeSend(this)
     }
 
-    /** Events also go to a file: the phone's log keeps only a little (seen on a Galaxy S26 Ultra: lines were gone
-     *  within seconds), so tests read files/events.log and files/engine.json with "adb shell run-as". */
-    private fun event(what: String) {
-        runCatching {
-            val f = java.io.File(filesDir, "events.log")
-            if (f.length() > 200_000) f.delete()
-            f.appendText("${System.currentTimeMillis()} $what\n")
-        }
+    /** Into NetMerge's log (EventLog; tests read files/events.log and files/engine.json with "adb shell run-as"). */
+    private fun event(what: String) = EventLog.add(this, what)
+
+    /** The engine's own lines (failed connections, network changes, panics), into the same log. */
+    private fun drainEngine() {
+        val s = runCatching { mobile.Mobile.events() }.getOrNull() ?: return
+        if (s.isNotEmpty()) for (l in s.lines()) event(if (l.startsWith("engine")) l else "engine $l")
     }
 
     override fun onDestroy() {
+        if (active) event("service: closed by Android while merging")
         stopMerging()
         super.onDestroy()
     }
 
     override fun onRevoke() {
+        event("VPN taken away (another VPN app, or the user in Android's settings)")
         problem = "Another VPN app took over, so NetMerge stopped."
         stopMerging()
         super.onRevoke()
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= TRIM_MEMORY_RUNNING_LOW) event("memory: the phone is low on memory (level $level)")
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        event("app swiped away from recents (merging=${running})")
     }
 
     companion object {

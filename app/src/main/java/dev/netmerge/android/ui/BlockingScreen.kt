@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import dev.netmerge.android.Blocklists
+import dev.netmerge.android.logged
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -31,13 +32,13 @@ fun BlockingScreen(live: Live) {
     var note by remember { mutableStateOf("") }
 
     fun applyNow() = scope.launch {
-        val n = withContext(Dispatchers.IO) { runCatching { Blocklists.apply(ctx) }.getOrDefault(0) }
+        val n = withContext(Dispatchers.IO) { ctx.logged("load the block lists") { Blocklists.apply(ctx) } ?: 0 }
         note = if (on) "%,d sites on the lists".format(n) else "Blocking is off"
     }
     fun update(force: Boolean) = scope.launch {
         updating = true
         note = "Downloading lists…"
-        val ok = withContext(Dispatchers.IO) { runCatching { Blocklists.refresh(ctx, force) }.getOrDefault(false) }
+        val ok = withContext(Dispatchers.IO) { ctx.logged("download the block lists") { Blocklists.refresh(ctx, force) } ?: false }
         updating = false
         if (!ok && force) note = "Could not download the lists; the ones on the phone stay in use"
         applyNow()
