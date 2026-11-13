@@ -1,6 +1,6 @@
 # Test results
 
-Where NetMerge for Android stands, test by test. As of 13 November 2026, version 0.1.0 (pull request #14).
+Where NetMerge for Android stands, test by test. As of 13 November 2026, version 0.2.0 beta (the newest release on GitHub).
 
 | Where | What | Result |
 | --- | --- | --- |
