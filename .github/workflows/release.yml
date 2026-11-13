@@ -86,9 +86,13 @@ jobs:
           rm -f "$NETMERGE_KEYSTORE"
       - name: Check the signature (the private key, not the public test key)
         run: |
-          AS=$(ls $ANDROID_HOME/build-tools/*/apksigner | sort -V | tail -1)
+          AS=$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}" /usr/local/lib/android -name apksigner -path "*build-tools*" 2>/dev/null | sort -V | tail -1)
+          echo "apksigner: $AS"
+          [ -n "$AS" ] || { echo "apksigner not found"; exit 1; }
           for f in out/*.apk; do
-            "$AS" verify --print-certs "$f" | tee cert.txt | grep -E "Signer #1 certificate (DN|SHA-256)"
+            echo "== $f"
+            "$AS" verify --print-certs "$f" > cert.txt
+            grep -E "certificate (DN|SHA-256)" cert.txt || true
             grep -q "CN=NetMerge Android test builds" cert.txt && { echo "$f is signed with the test key"; exit 1; }
             "$AS" verify "$f"
           done
