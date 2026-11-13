@@ -9,6 +9,9 @@ on:
       build:
         description: "Which test build: test-build (main) or test-build-branch"
         default: test-build-branch
+      devices:
+        description: "Only these phones (--device lines, e.g. model=houji,version=35); empty: five picked"
+        default: ""
   schedule:
     - cron: "17 21 * * 0" # Sunday night (Pakistan Monday 02:17)
   push:
@@ -62,16 +65,36 @@ jobs:
               if len(picked) == 5: break
           print("\n".join(picked))
           PY
+          [ -n "${{ github.event.inputs.devices }}" ] && echo "${{ github.event.inputs.devices }}" | tr ' ' '\n' > devices.txt
+          [ "${{ github.event_name }}" = push ] && sed -n '2,$p' .github/testlab-run | grep '^model=' > only.txt && [ -s only.txt ] && mv only.txt devices.txt && touch .only
           cat devices.txt
           args=""; while read d; do [ -n "$d" ] && args="$args --device $d"; done < devices.txt
           gcloud firebase test android run --project netmerge-tests --type instrumentation \
             --app probe-debug.apk --test probe-debug-androidTest.apk --additional-apks app-universal-release.apk \
             --test-targets "class dev.netmerge.probe.DeviceSmokeTest" \
             $args --timeout 8m --directories-to-pull /sdcard/Android/data/dev.netmerge.probe/files/screens \
-            --results-history-name netmerge --num-flaky-test-attempts 1 || echo "::warning::some phones failed (see the results link above)"
-      - name: Run on virtual phones
+            --results-history-name netmerge --num-flaky-test-attempts 1 2>&1 | tee run.txt || true
+          grep -q "Failed" run.txt && echo "::warning::some phones failed (see below and the results link above)" || true
+      - name: What the phones logged
         if: always()
         run: |
+          d=$(grep -o "storage/browser/[^ ]*" run.txt | head -1 | sed 's#storage/browser/##; s#/\]*$##; s#\]##')
+          [ -n "$d" ] || exit 0
+          mkdir -p results && gsutil -m -q cp -r "gs://$d/*" results/ 2>/dev/null || true
+          for f in $(find results -name "logcat" -o -name "*logcat*" | head -20); do
+            echo "=== $f"; grep -a -i -E "netmerge|vpn|blocked|background activity|denied|FATAL|AndroidRuntime" "$f" | grep -a -v -i "chatty" | tail -40 | cut -c1-240
+          done
+          find results -name "*.png" -o -name "*.xml" | head -40
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: testlab-results
+          path: results/
+          if-no-files-found: ignore
+      - name: Run on virtual phones
+        if: always() && github.event.inputs.devices == ''
+        run: |
+          [ -f .only ] && { echo "only the phones named in .github/testlab-run"; exit 0; }
           gcloud firebase test android run --project netmerge-tests --type instrumentation \
             --app probe-debug.apk --test probe-debug-androidTest.apk --additional-apks app-universal-release.apk \
             --test-targets "class dev.netmerge.probe.DeviceSmokeTest" \

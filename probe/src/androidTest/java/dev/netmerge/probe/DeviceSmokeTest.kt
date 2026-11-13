@@ -71,7 +71,15 @@ class DeviceSmokeTest {
         SystemClock.sleep(3000)
         answerQuestions()
         open("merge" to true)
-        assertTrue("the VPN did not come up within 45 s", waitFor(45) { vpnUp() })
+        if (!waitFor(45) { vpnUp() }) {
+            // say what the phone shows instead (another maker's VPN question, a blocked start, an error)
+            shot("no-vpn")
+            val seen = dev.findObjects(By.text(Pattern.compile(".+"))).joinToString(" | ") { it.text }.take(600)
+            val buttons = dev.findObjects(By.clickable(true)).mapNotNull { o -> o.text ?: o.contentDescription ?: o.resourceName }.joinToString(", ").take(400)
+            report("screen", "package ${dev.currentPackageName}; text: $seen; buttons: $buttons")
+            runCatching { dev.dumpWindowHierarchy(File(shots, "no-vpn.xml")) }
+            throw AssertionError("the VPN did not come up within 45 s; on screen: ${dev.currentPackageName}: $seen")
+        }
         report("vpn", "up")
         SystemClock.sleep(3000)
         ProbeTest().pagesOpen()
