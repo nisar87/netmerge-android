@@ -179,10 +179,25 @@ fun SettingsScreen(live: Live, openApps: () -> Unit) {
                 )
                 Spacer(Modifier.height(10.dp))
                 val v = runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: ""
-                Text("Version $v", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
+                Text("Version $v · made by Nisar Ahmad", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
+            }
+            HorizontalDivider(color = scheme.outlineVariant)
+            NavRow(Icons.Rounded.Public, "NetMerge for Android on the web", "nisarworks.com: news, help and new versions") {
+                openWeb(ctx, "https://nisarworks.com/products/netmerge-android/")
+            }
+            HorizontalDivider(color = scheme.outlineVariant)
+            NavRow(Icons.Rounded.Apps, "More from Nisarworks", "NetMerge for Windows and other free tools") {
+                openWeb(ctx, "https://nisarworks.com/")
             }
         }
         Spacer(Modifier.height(24.dp))
+    }
+}
+
+/** Opens a page in the phone's browser. */
+private fun openWeb(ctx: android.content.Context, url: String) {
+    runCatching {
+        ctx.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 }
 

@@ -5,7 +5,7 @@ runs a VPN on the phone that catches every app's traffic; each **new connection*
 more of them on the faster one. Downloads, app stores, browsers and streaming open many connections and get faster;
 one single connection still uses one network.
 
-**Status: working test builds, not released.** Measured on a Galaxy S26 Ultra: about +38% for downloads with many
+**Status: working test builds, not released; tested on six phone models.** Measured on a Galaxy S26 Ultra: about +38% for downloads with many
 connections when both networks are fast; dropping a network in the middle of a download stalls it for under 3 s.
 Results, costs and open questions: [docs/feasibility-results.md](docs/feasibility-results.md).
 
@@ -42,12 +42,16 @@ level, start again by itself once it has charged back to a second level; off by 
 
 ## How it is tested
 
-1. `go test ./split` for the splitter.
-2. Every change runs on Android emulators (API 34 and 35) with Wi-Fi and mobile data: both networks up, connections
-   leave on each network, merged pages and downloads, Wi-Fi switched off in the middle of a download (fails on a stall
-   of 5 s or more), mobile data on demand, the daily limit, and screenshots of the screen (in the CI log).
-3. Every push to `main` puts test builds on the `test-build` pre-release; a real phone runs them over adb (speed,
-   processor time, battery, dropouts, hours-long runs).
+Latest results, test by test: **[docs/test-results.md](docs/test-results.md)**.
+
+1. `go test ./split ./dnsblock` for the engine.
+2. Every change runs on Android emulators (API 34 and 35) with Wi-Fi and mobile data: both networks, merged pages and
+   downloads, Wi-Fi switched off mid-download, mobile data on demand, daily limit, roaming, apps left out, battery
+   guard, the tile, ad blocking, the speed test, the release build, and the engine's 16 KB page alignment.
+3. Firebase Test Lab runs the app on real phones of other makers (Samsung, Google, Motorola, Oppo, Xiaomi) and virtual
+   ones, weekly and by hand (`.github/workflows/testlab.yml`).
+4. A real phone (Galaxy S26 Ultra, Android 17) runs every feature over adb: speed, dropouts, battery guard, ad
+   blocking, restart with Always-on VPN, hours-long runs.
 
 Test builds are signed with a public test key (`app/test-signing.jks`) so a new build installs over the last one;
 a release will use a private key.
