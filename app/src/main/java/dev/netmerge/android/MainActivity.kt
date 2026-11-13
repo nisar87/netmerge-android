@@ -74,7 +74,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class Tab(val label: String, val icon: ImageVector) {
-    Home("Home", Icons.Rounded.Home), Test("Speed test", Icons.Rounded.Speed), Block("Blocking", Icons.Rounded.Shield), Settings("Settings", Icons.Rounded.Settings)
+    Home("Home", Icons.Rounded.Home), Test("Speed", Icons.Rounded.Speed), Block("Blocking", Icons.Rounded.Shield), Settings("Settings", Icons.Rounded.Settings)
 }
 
 @Composable

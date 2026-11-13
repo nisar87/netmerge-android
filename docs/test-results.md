@@ -5,7 +5,7 @@ Where NetMerge for Android stands, test by test. As of 13 November 2026, version
 | Where | What | Result |
 | --- | --- | --- |
 | Galaxy S26 Ultra, Android 17 (the owner's phone, over adb) | Every feature, real Wi-Fi and real mobile data | All pass after the fixes below |
-| Firebase Test Lab, 5 real phones of other makers + 2 virtual | Start, VPN, pages through it, stop, screens | 6 of 7 pass; Xiaomi 14: a test-only problem, fixed, rerun pending |
+| Firebase Test Lab, 6 real phones of other makers + 2 virtual | Start, VPN, pages through it, stop, screens | All pass |
 | Android emulators, API 34 and 35 | Full suite on every change | All pass |
 | Unit tests (Go engine) | Splitter, DNS blocking | All pass |
 
@@ -57,7 +57,7 @@ is answered, the VPN comes up, pages open through it, each screen is photographe
 | Oppo CPH2195 | 13 | Pass |
 | Virtual phone | 10 | Pass |
 | Virtual phone | 14 | Pass |
-| Xiaomi 14 | 15 | Fail in the test, not the app: HyperOS blocked the test app from opening NetMerge. The test now opens it the way a person or adb does; rerun pending (free daily quota) |
+| Xiaomi 14 | 15 | Pass (13 November; the first run failed in the test, not the app: HyperOS blocked the test app from opening NetMerge, so the test now opens it the way a person does) |
 
 ## Emulators, on every change
 
@@ -80,10 +80,11 @@ VPN service only), screenshots. The engine library's 16 KB page alignment is che
 | Speed test: mobile data not woken in time; mobile data used over-counted | Phone test | Waits up to 30 s more; counts only mobile bytes |
 | Home said to turn on mobile data that was only asleep | Phone test | Reads the phone's mobile data setting |
 | Each stop was logged (and reported) twice | Diagnostics | A stop followed by the service's end is logged once |
+| With a large font the dial's numbers overlapped; title, tab names and a button were cut | The owner, on a Galaxy S25 Ultra | Dial text sized from the dial; header stacks; emulator screenshots at 130% font and 115% screen zoom on every change |
+| A test build could not be updated to a release | The owner | Expected: different keys. Release notes say to uninstall a test build once |
 
 ## Not tested yet
 
 - Roaming abroad on a real phone (the emulator cannot fake it).
 - Battery cost on demand against always on (needs about 80 minutes unplugged).
-- Xiaomi 14 rerun in Test Lab (pending quota).
 - Phones from people other than the owner (the closed test before Google Play).
