@@ -1,0 +1,27 @@
+#!/bin/sh
+# Started from outside the app: the quick settings tile must start and stop merging (on a phone it stopped but could
+# not start). Always-on VPN is checked on the release build (emulator.sh): it must hold exactly one VPN service.
+ev() { adb shell run-as dev.netmerge.android cat files/events.log 2>/dev/null; }
+tun() { adb shell ip addr 2>/dev/null | grep -q "10.111.0.2"; }
+pages() { adb shell am instrument -w -r -e class dev.netmerge.probe.ProbeTest#pagesOpen dev.netmerge.probe.test/androidx.test.runner.AndroidJUnitRunner | grep -q "^OK ("; }
+fail() { echo "$1"; ev | grep -v -e stats -e networks | tail -8 | cut -c1-160; adb logcat -d | grep -i -E "MergeTile|netmerge|ForegroundService|TileService" | tail -30 | cut -c1-240; exit 1; }
+adb shell am start -n dev.netmerge.android/.MainActivity --ez merge false; sleep 3
+# the tile (added for the test, removed after)
+adb shell cmd statusbar add-tile dev.netmerge.android/.MergeTileService; sleep 2
+adb shell input keyevent KEYCODE_HOME; sleep 2
+adb shell run-as dev.netmerge.android rm -f files/events.log
+adb shell cmd statusbar click-tile dev.netmerge.android/.MergeTileService
+for i in $(seq 1 30); do ev | grep -q started && break; sleep 1; done
+if ! ev | grep -q "tile: clicked"; then
+  # Android did not hand the click to the app at all (seen on the API 34 emulator: "Couldn't find tile"): nothing to test
+  echo "warning: the emulator did not pass the tile click to the app; tile not tested here"
+  adb shell cmd statusbar remove-tile dev.netmerge.android/.MergeTileService; adb shell cmd statusbar collapse
+  echo "system: OK (tile skipped)"; exit 0
+fi
+ev | grep -q started || fail "the tile did not start merging"
+sleep 3
+adb shell cmd statusbar click-tile dev.netmerge.android/.MergeTileService; sleep 5
+ev | tail -2 | grep -q stopped || fail "the tile did not stop merging"
+adb shell cmd statusbar remove-tile dev.netmerge.android/.MergeTileService
+adb shell cmd statusbar collapse
+echo "system: OK"

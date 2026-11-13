@@ -42,8 +42,16 @@ jobs:
           go test ./split
           gomobile init
           mkdir -p ../app/libs
-          gomobile bind -target=android/arm64,android/amd64 -androidapi 29 -o ../app/libs/engine.aar ./mobile
+          # 16 KB memory pages (Google Play requires apps to support them): the engine's library must be aligned to 16 KB
+          CGO_LDFLAGS="-Wl,-z,max-page-size=16384" gomobile bind -target=android/arm64,android/amd64 -androidapi 29 -o ../app/libs/engine.aar ./mobile
           ls -la ../app/libs
+          mkdir -p /tmp/aar && unzip -o -q ../app/libs/engine.aar -d /tmp/aar
+          for so in /tmp/aar/jni/*/libgojni.so; do
+            al=$(readelf -lW "$so" | awk '$1=="LOAD"{print $NF}' | sort -u | tr '\n' ' ')
+            echo "$so LOAD alignment: $al"
+            [ -n "$al" ] || { echo "could not read the alignment"; readelf -lW "$so" | head -30; exit 1; }
+            for v in $al; do case $v in 0x4000|0x10000) ;; *) echo "not aligned to 16 KB: $v"; exit 1;; esac; done
+          done
       - name: Allow the emulator to use KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -86,9 +94,10 @@ jobs:
 
   test-build:
     # The test app for a real phone: kept on a pre-release named test-build, replaced on every push to main, so the
-    # phone test can download it (it is a test build, not a release).
+    # phone test can download it (it is a test build, not a release). A run started by hand on another branch puts its
+    # build on test-build-branch instead, so a change can be tried on the phone before it is merged.
     needs: emulator
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || (github.ref != 'refs/heads/main' && github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -98,10 +107,11 @@ jobs:
       - name: Put the test app on the test-build pre-release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref == 'refs/heads/main' && 'test-build' || 'test-build-branch' }}
         run: |
           find apks -name '*.apk' -exec cp {} . \;
-          gh release delete test-build -R ${{ github.repository }} --yes --cleanup-tag || true
-          gh release create test-build -R ${{ github.repository }} --prerelease --target ${{ github.sha }} \
+          gh release delete $TAG -R ${{ github.repository }} --yes --cleanup-tag || true
+          gh release create $TAG -R ${{ github.repository }} --prerelease --target ${{ github.sha }} \
             --title "Test build (not a release)" \
-            --notes "Built from ${{ github.sha }} for testing on a real phone over USB. Not for daily use." \
+            --notes "Built from ${{ github.ref_name }} ${{ github.sha }} for testing on a real phone over USB. Not for daily use." \
             app-arm64-v8a-release.apk app-universal-release.apk app-universal-debug.apk app-debug-androidTest.apk probe-debug.apk probe-debug-androidTest.apk

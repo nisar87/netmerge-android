@@ -3,7 +3,11 @@ package dev.netmerge.android
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.os.BatteryManager
 import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
@@ -27,10 +31,15 @@ class MergeVpnService : VpnService() {
             stopSelf(startId) // not stopSelf(): a start sent right after this stop must still run
             return START_NOT_STICKY
         }
+        if (intent?.action == ACTION_CHECK) { // a setting changed on the screen
+            if (active) checkBattery() else stopSelf(startId)
+            return if (active) START_STICKY else START_NOT_STICKY
+        }
         // settings that came with the start (tests): taken also when merging already runs
         if (intent?.hasExtra("ondemand") == true) {
             Settings.setOnDemand(this, intent.getBooleanExtra("ondemand", false))
         }
+        if (intent?.hasExtra("roaming") == true) Settings.setRoaming(this, intent.getBooleanExtra("roaming", false))
         if (intent?.hasExtra("limitmb") == true) Settings.setLimitMB(this, intent.getIntExtra("limitmb", 0))
         if (intent?.hasExtra("blocking") == true) {
             Blocklists.setOn(this, intent.getBooleanExtra("blocking", true))
@@ -38,14 +47,91 @@ class MergeVpnService : VpnService() {
         }
         intent?.getStringExtra("exclude")?.let { Excluded.set(this, it, true) }
         intent?.getStringExtra("include")?.let { Excluded.set(this, it, false) }
-        if (active) return START_STICKY // already starting or running
+        if (intent?.hasExtra("batterystop") == true) Settings.setBatteryStop(this, intent.getIntExtra("batterystop", 0))
+        if (intent?.hasExtra("batteryresume") == true) Settings.setBatteryResume(this, intent.getIntExtra("batteryresume", 50))
+        if (active) { checkBattery(); return START_STICKY } // already starting, running or paused
         active = true
         stopped = false
+        batteryPaused = false
+        armed = null
         mtu = intent?.getIntExtra("mtu", DEFAULT_MTU)?.takeIf { it in 1280..65535 } ?: DEFAULT_MTU
         goForeground()
         val gen = ++generation
         thread(name = "merge-start") { safeStart(gen) }
+        watchBattery()
         return START_STICKY
+    }
+
+    private var batteryReceiver: BroadcastReceiver? = null
+    /** Whether a fall to the stop level pauses merging. Not while merging was started with the battery already at
+     *  or below it (the user asked for it then); it arms once the battery is above the level again. */
+    private var armed: Boolean? = null
+
+    /** Android tells us of every change of the battery level (and at once when we register). */
+    private fun watchBattery() {
+        if (batteryReceiver != null) return
+        val r = object : BroadcastReceiver() {
+            override fun onReceive(c: Context, i: Intent) = batteryChanged(i)
+        }
+        batteryReceiver = r
+        runCatching { registerReceiver(r, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) }
+    }
+
+    private fun unwatchBattery() {
+        batteryReceiver?.let { runCatching { unregisterReceiver(it) } }
+        batteryReceiver = null
+    }
+
+    private fun checkBattery() {
+        runCatching { registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) }.getOrNull()?.let { batteryChanged(it) }
+    }
+
+    /**
+     * Battery guard: merging pauses when the battery falls to the stop level and starts again once it has charged
+     * back to the resume level. While paused the VPN is closed (apps use the phone's normal network) but this
+     * service stays, with its notification, to watch the battery.
+     */
+    @Synchronized
+    private fun batteryChanged(i: Intent) {
+        val raw = i.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+        val scale = i.getIntExtra(BatteryManager.EXTRA_SCALE, 100).coerceAtLeast(1)
+        if (raw < 0 || !active) return
+        val level = raw * 100 / scale
+        batteryLevel = level
+        val stopAt = Settings.batteryStop(this)
+        val resumeAt = resumeLevel(this)
+        if (batteryPaused) {
+            if (stopAt == 0 || level >= resumeAt) resumeAfterBattery(level)
+            else showStatus("Battery $level%. Merging starts again at $resumeAt%.")
+            return
+        }
+        if (stopAt == 0) { armed = null; return }
+        if (armed == null) armed = level > stopAt
+        if (level > stopAt) armed = true
+        else if (armed == true) pauseForBattery(level, resumeAt)
+    }
+
+    private fun pauseForBattery(level: Int, resumeAt: Int) {
+        batteryPaused = true
+        Usage.flush(this)
+        generation++ // ends the stats thread and any start still under way
+        runCatching { mobile.Mobile.stop() }
+        running = false
+        nets?.stop()
+        nets = null
+        MergeTileService.update(this)
+        event("paused: battery $level%, starts again at $resumeAt%")
+        showStatus("Battery $level%. Merging starts again at $resumeAt%.")
+    }
+
+    private fun resumeAfterBattery(level: Int) {
+        batteryPaused = false
+        armed = true
+        retried = false
+        event("resumed: battery $level%")
+        showStatus("Starting…")
+        val gen = ++generation
+        thread(name = "merge-start") { safeStart(gen) }
     }
 
     /** The notification while merging: what it does right now, a tap opens the app, Stop stops. */
@@ -57,7 +143,7 @@ class MergeVpnService : VpnService() {
         val stop = android.app.PendingIntent.getService(this, 1, Intent(this, MergeVpnService::class.java).setAction(ACTION_STOP),
             android.app.PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(this, "merge")
-            .setContentTitle("NetMerge is merging")
+            .setContentTitle(if (batteryPaused) "NetMerge paused to save battery" else "NetMerge is merging")
             .setContentText(text)
             .setSmallIcon(R.drawable.ic_merge)
             .setContentIntent(open)
@@ -148,6 +234,7 @@ class MergeVpnService : VpnService() {
             return
         }
         running = true
+        if (startedAt == 0L) startedAt = SystemClock.elapsedRealtime()
         retried = false
         problem = null
         thread(name = "blocklists") {
@@ -223,8 +310,10 @@ class MergeVpnService : VpnService() {
         overLimit = limit > 0 && Usage.mobileToday(this) >= limit
         onDemand = Settings.onDemand(this)
         if (bytesPerSecond > BUSY) { busyFor++; quietFor = 0 } else if (bytesPerSecond < QUIET) { quietFor++; busyFor = 0 } else { busyFor = 0; quietFor = 0 }
+        roamingNow = roaming()
         val (want, why) = when {
             !wifi -> true to "no Wi-Fi"
+            roamingNow && !Settings.roaming(this) -> false to "roaming"
             overLimit -> false to "daily limit reached"
             !onDemand -> true to "always"
             held -> (quietFor < 30) to "quiet for a minute"
@@ -236,6 +325,11 @@ class MergeVpnService : VpnService() {
             event((if (want) "mobile held: " else "mobile released: ") + why)
         }
     }
+
+    /** The phone is roaming on mobile data (abroad, or on another carrier's network). */
+    private fun roaming(): Boolean = runCatching {
+        getSystemService(android.telephony.TelephonyManager::class.java).isNetworkRoaming
+    }.getOrDefault(false)
 
     private fun networksChanged() {
         val n = nets ?: return
@@ -251,10 +345,12 @@ class MergeVpnService : VpnService() {
     private var retried = false
 
     private fun failed(gen: Int) {
+        if (gen != generation) return // an older start: whoever ended it (stop, pause) already cleaned up
         nets?.stop()
         nets = null
         if (retried || stopped || gen != generation) {
             active = false
+            unwatchBattery()
             if (!stopped) problem = "NetMerge could not start. Check that Wi-Fi or mobile data is on, then try again."
             stopForeground(STOP_FOREGROUND_REMOVE)
             return
@@ -274,8 +370,11 @@ class MergeVpnService : VpnService() {
         generation++
         stopped = true
         active = false
+        batteryPaused = false
+        unwatchBattery()
         runCatching { mobile.Mobile.stop() } // always: an engine of a start that had not finished must not be left running
         running = false
+        startedAt = 0
         MergeTileService.update(this)
         nets?.stop()
         nets = null
@@ -307,6 +406,15 @@ class MergeVpnService : VpnService() {
 
     companion object {
         const val ACTION_STOP = "dev.netmerge.android.MERGE_STOP"
+        /** Look at the battery again now (a battery setting changed). */
+        const val ACTION_CHECK = "dev.netmerge.android.MERGE_CHECK"
+        /** Merging is paused until the battery charges back (see batteryChanged). */
+        @Volatile var batteryPaused = false
+        /** Mobile data is roaming now (merging leaves it alone unless the setting allows it). */
+        @Volatile var roamingNow = false
+        @Volatile var batteryLevel = -1
+        /** The resume level, at least 5 points above the stop level so it cannot flip back and forth. */
+        fun resumeLevel(c: Context) = maxOf(Settings.batteryResume(c), Settings.batteryStop(c) + 5)
         /** The VPN's packet size. Bigger packets mean fewer of them for the engine's stack to handle per GB (the
          *  networks themselves still use their own size). Tests can pass "mtu" to compare. */
         const val DEFAULT_MTU = 9000 // phone: about 44 s of processor per GB against 63 s at 1500, same speed
@@ -320,6 +428,8 @@ class MergeVpnService : VpnService() {
         private const val BUSY = 1_000_000.0 // bytes per second for 4 s: merging can help, bring mobile data up
         private const val QUIET = 100_000.0 // bytes per second for a minute: nothing to gain, let mobile data go
         @Volatile var running = false
+        /** When merging started (elapsedRealtime; 0 while off), for "running for" on the screen. */
+        @Volatile var startedAt = 0L
         /** Why merging stopped by itself, for the screen (null: nothing to say). */
         @Volatile var problem: String? = null
     }

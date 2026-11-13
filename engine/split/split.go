@@ -5,8 +5,10 @@ package split
 
 import (
 	"math"
+	"sort"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // Net is one network the phone can use (Wi-Fi, mobile data).
@@ -26,6 +28,7 @@ type Stat struct {
 	Conns  int64   `json:"conns"` // connections given to this network so far
 	Cap    float64 `json:"cap"`   // learned speed, bytes per second
 	Share  float64 `json:"share"` // share of new connections it gets now
+	RTT    float64 `json:"rtt"`   // how long it takes to answer a new connection (s, smoothed; 0: not known yet)
 }
 
 type line struct {
@@ -34,6 +37,9 @@ type line struct {
 	cap                   float64 // learned capacity (bytes/s): highest recent rate, slowly forgotten
 	lastRx                int64
 	cur                   float64 // smooth weighted round robin state
+	rtt                   float64 // smoothed time to open a connection (s); 0 until the first one
+	answers               int     // connections opened (for rtt)
+	busy                  float64 // seconds it has had connections open (judging a slow network needs no 2 MB)
 }
 
 // Splitter hands out networks to new connections.
@@ -44,12 +50,25 @@ type Splitter struct {
 
 const (
 	startCap = 1 << 20 // assume 1 MB/s until a network shows what it can do
-	minCap   = 64 << 10
+	minCap   = 8 << 10
 	// forget: per second of use, a speed seen once fades (half in about 35 s of traffic) unless seen again. While a
 	// network carries (almost) nothing nothing is forgotten: idle says nothing about its speed, and forgetting then
 	// made every network look the same after a pause.
 	forget  = 0.98
 	idleBps = 32 << 10
+	// slowForget: a network that has connections open but carries far less than its learned speed is slow, not idle;
+	// its speed falls quickly (a very slow mobile network below idleBps was never forgotten: it kept a share of new
+	// connections it could not serve, and web pages waited for it).
+	slowForget = 0.85
+	// slowAnswer: a network that takes this many times as long as the quickest to answer a new connection (and at
+	// least slowAnswerMin longer) gets only a trickle: web pages are many small connections and wait for each.
+	// (3× and 0.15 s was too eager: on a phone, Wi-Fi answering its first few connections in 0.27 s next to mobile at
+	// 0.09 s was cut to a trickle, though it was the faster network for pages)
+	slowAnswer    = 4.0
+	slowAnswerMin = 0.3
+	answersNeeded = 3 // answers seen before a network is judged by them
+	// judged: seconds of open connections after which a network's speed counts as known even without 2 MB
+	judged = 20.0
 	// slowPart: a network slower than this part of the fastest gets only a trickle of new connections (1 in
 	// trickle), enough to notice when it gets faster. With a full share it only delays downloads: their last pieces
 	// wait for it (seen on the phone with mobile data at about 1 Mbps next to 60 Mbps Wi-Fi).
@@ -98,10 +117,34 @@ func (s *Splitter) Tick(seconds float64) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, l := range s.lines {
+	rates := make([]float64, len(s.lines))
+	top := 0.0
+	for i, l := range s.lines {
 		rx := l.rx.Load()
-		rate := float64(rx-l.lastRx) / seconds
+		rates[i] = float64(rx-l.lastRx) / seconds
 		l.lastRx = rx
+		if rates[i] > top {
+			top = rates[i]
+		}
+	}
+	for i, l := range s.lines {
+		rate := rates[i]
+		busy := l.active.Load() > 0
+		if busy {
+			l.busy += seconds
+		}
+		// slow, not idle: it has connections open and is far below its learned speed while another network moves
+		// data at the same time (so the apps do want data now; when all are quiet, nothing is judged)
+		if busy && l.busy > 3 && rate < l.cap/4 && top >= 4*idleBps && rate < top/4 {
+			l.cap *= math.Pow(slowForget, seconds)
+			if rate > l.cap {
+				l.cap = rate
+			}
+			if l.cap < minCap {
+				l.cap = minCap
+			}
+			continue
+		}
 		if rate < idleBps {
 			continue
 		}
@@ -121,17 +164,13 @@ func (s *Splitter) Pick(v6 bool) (n Net, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var best *line
-	total, fastest := 0.0, 0.0
-	for _, l := range s.lines {
-		if ((v6 && l.V6) || (!v6 && l.V4)) && l.cap > fastest {
-			fastest = l.cap
-		}
-	}
+	total := 0.0
+	fastest, quickest := s.bests(v6)
 	for _, l := range s.lines {
 		if (v6 && !l.V6) || (!v6 && !l.V4) {
 			continue
 		}
-		w := l.weight(fastest)
+		w := l.weight(fastest, quickest)
 		l.cur += w
 		total += w
 		if best == nil || l.cur > best.cur {
@@ -149,10 +188,35 @@ func (s *Splitter) Pick(v6 bool) (n Net, ok bool) {
 // measured: a network has carried enough to have shown its speed (before that it is never cut to a trickle).
 const measured = 2 << 20
 
+// bests: the highest learned speed and the quickest answer time among the networks for this kind of address.
+func (s *Splitter) bests(v6 bool) (fastest, quickest float64) {
+	for _, l := range s.lines {
+		if (v6 && !l.V6) || (!v6 && !l.V4) {
+			continue
+		}
+		if l.cap > fastest {
+			fastest = l.cap
+		}
+		if l.answers >= answersNeeded && (quickest == 0 || l.rtt < quickest) {
+			quickest = l.rtt
+		}
+	}
+	return
+}
+
+// slowToAnswer: it takes far longer than the quickest network to open a connection.
+func (l *line) slowToAnswer(quickest float64) bool {
+	return l.answers >= answersNeeded && quickest > 0 && l.rtt > slowAnswer*quickest && l.rtt-quickest > slowAnswerMin
+}
+
 // weight is a network's share of new connections: its learned speed, or a trickle when it has shown that it is far
-// slower than the fastest network.
-func (l *line) weight(fastest float64) float64 {
-	if l.rx.Load() <= measured {
+// slower than the fastest network, or far slower to answer.
+func (l *line) weight(fastest, quickest float64) float64 {
+	if l.slowToAnswer(quickest) && !(l.rx.Load() > measured && l.cap >= fastest) {
+		// (a network proven the fastest by what it carried keeps its share however long it takes to answer)
+		return fastest / trickle
+	}
+	if l.rx.Load() <= measured && l.busy < judged {
 		// not shown its speed yet: at least a fifth of new connections, so it gets the chance
 		return math.Max(l.cap, fastest/4)
 	}
@@ -160,6 +224,49 @@ func (l *line) weight(fastest float64) float64 {
 		return fastest / trickle
 	}
 	return l.cap
+}
+
+// Answered records how long a network took to open a connection (TCP handshake): the time web pages wait on it.
+func (s *Splitter) Answered(name string, d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, l := range s.lines {
+		if l.Name == name {
+			t := d.Seconds()
+			l.answers++
+			if l.rtt == 0 {
+				l.rtt = t
+			} else {
+				l.rtt = 0.7*l.rtt + 0.3*t
+			}
+		}
+	}
+}
+
+// Ranked lists the networks for this kind of address, best first (quick to answer, then fast): for what must not
+// wait on a slow network, such as DNS questions.
+func (s *Splitter) Ranked(v6 bool) []Net {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	fastest, quickest := s.bests(v6)
+	var ls []*line
+	for _, l := range s.lines {
+		if (v6 && l.V6) || (!v6 && l.V4) {
+			ls = append(ls, l)
+		}
+	}
+	sort.SliceStable(ls, func(i, j int) bool {
+		si, sj := ls[i].slowToAnswer(quickest), ls[j].slowToAnswer(quickest)
+		if si != sj {
+			return !si
+		}
+		return ls[i].weight(fastest, quickest) > ls[j].weight(fastest, quickest)
+	})
+	out := make([]Net, len(ls))
+	for i, l := range ls {
+		out[i] = l.Net
+	}
+	return out
 }
 
 // Counter returns the byte and connection counters of a network, for the connection that was given to it.
@@ -179,20 +286,23 @@ func (s *Splitter) Counter(name string) (rx, tx, active *atomic.Int64) {
 func (s *Splitter) Stats() []Stat {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	total, fastest := 0.0, 0.0
+	total, fastest, quickest := 0.0, 0.0, 0.0
 	for _, l := range s.lines {
 		if l.cap > fastest {
 			fastest = l.cap
 		}
+		if l.answers >= answersNeeded && (quickest == 0 || l.rtt < quickest) {
+			quickest = l.rtt
+		}
 	}
 	for _, l := range s.lines {
-		total += l.weight(fastest)
+		total += l.weight(fastest, quickest)
 	}
 	out := make([]Stat, 0, len(s.lines))
 	for _, l := range s.lines {
-		st := Stat{Name: l.Name, Rx: l.rx.Load(), Tx: l.tx.Load(), Active: l.active.Load(), Conns: l.conns.Load(), Cap: l.cap}
+		st := Stat{Name: l.Name, Rx: l.rx.Load(), Tx: l.tx.Load(), Active: l.active.Load(), Conns: l.conns.Load(), Cap: l.cap, RTT: l.rtt}
 		if total > 0 {
-			st.Share = l.weight(fastest) / total
+			st.Share = l.weight(fastest, quickest) / total
 		}
 		out = append(out, st)
 	}

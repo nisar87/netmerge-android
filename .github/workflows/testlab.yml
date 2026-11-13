@@ -1,0 +1,102 @@
+# NetMerge on many phones it has never met: Firebase Test Lab (project netmerge-tests) runs the device test on real
+# phones of several makers and on virtual ones. Those phones have Wi-Fi only, so this tests the app (starting, the VPN,
+# pages through it, stopping, the screens), not merging itself. Free plan: 5 real-phone and 10 virtual tests a day,
+# so it runs by hand and once a week, not on every change.
+name: Test Lab
+on:
+  workflow_dispatch:
+    inputs:
+      build:
+        description: "Which test build: test-build (main) or test-build-branch"
+        default: test-build-branch
+      devices:
+        description: "Only these phones (--device lines, e.g. model=houji,version=35); empty: five picked"
+        default: ""
+  schedule:
+    - cron: "17 21 * * 0" # Sunday night (Pakistan Monday 02:17)
+  push:
+    paths: [".github/testlab-run"] # a change to this file runs it from any branch (a manual run needs the workflow on main)
+permissions:
+  contents: read
+  id-token: write # GitHub proves who it is to Google (no key file)
+jobs:
+  devices:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/940996643435/locations/global/workloadIdentityPools/github/providers/netmerge-android
+          service_account: netmerge-ci@netmerge-tests.iam.gserviceaccount.com
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Get the build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          B="${{ github.event.inputs.build }}"
+          [ -n "$B" ] || { [ "${{ github.event_name }}" = push ] && B=$(head -1 .github/testlab-run 2>/dev/null); }
+          [ -n "$B" ] || B=test-build
+          gh release download "$B" -R ${{ github.repository }} -p 'app-universal-release.apk' -p 'probe-debug.apk' -p 'probe-debug-androidTest.apk'
+          gh release view "$B" -R ${{ github.repository }} --json body -q .body
+          ls -la *.apk
+      - name: Phones available
+        run: |
+          gcloud firebase test android models list --project netmerge-tests --filter "form=PHYSICAL" \
+            --format "table(id,manufacturer,name,supportedVersionIds.list())" | tee models.txt | head -80
+      - name: Run on phones
+        run: |
+          # five real phones of different makers and Android versions (the free daily limit), picked from what Test
+          # Lab has today, plus virtual Pixels for Android 10 and the newest
+          python3 - <<'PY' > devices.txt
+          import subprocess, json
+          out = subprocess.run(["gcloud","firebase","test","android","models","list","--project","netmerge-tests",
+                                "--filter","form=PHYSICAL","--format","json"], capture_output=True, text=True).stdout
+          models = json.loads(out or "[]")
+          want = ["samsung","xiaomi","oppo","motorola","google","vivo","oneplus","realme"]
+          picked, makers = [], set()
+          for maker in want:
+              for m in models:
+                  if m.get("manufacturer","").lower() == maker and maker not in makers:
+                      vs = [int(v) for v in m.get("supportedVersionIds", []) if v.isdigit() and int(v) >= 29]
+                      if vs:
+                          picked.append(f"model={m['id']},version={max(vs)}"); makers.add(maker)
+                      break
+              if len(picked) == 5: break
+          print("\n".join(picked))
+          PY
+          [ -n "${{ github.event.inputs.devices }}" ] && echo "${{ github.event.inputs.devices }}" | tr ' ' '\n' > devices.txt
+          [ "${{ github.event_name }}" = push ] && sed -n '2,$p' .github/testlab-run | grep '^model=' > only.txt && [ -s only.txt ] && mv only.txt devices.txt && touch .only
+          cat devices.txt
+          args=""; while read d; do [ -n "$d" ] && args="$args --device $d"; done < devices.txt
+          gcloud firebase test android run --project netmerge-tests --type instrumentation \
+            --app probe-debug.apk --test probe-debug-androidTest.apk --additional-apks app-universal-release.apk \
+            --test-targets "class dev.netmerge.probe.DeviceSmokeTest" \
+            $args --timeout 8m --directories-to-pull /sdcard/Android/data/dev.netmerge.probe/files/screens \
+            --results-history-name netmerge --num-flaky-test-attempts 1 2>&1 | tee run.txt || true
+          grep -q "Failed" run.txt && echo "::warning::some phones failed (see below and the results link above)" || true
+      - name: What the phones logged
+        if: always()
+        run: |
+          d=$(grep -o "storage/browser/[^ ]*" run.txt | head -1 | sed 's#storage/browser/##; s#/\]*$##; s#\]##')
+          [ -n "$d" ] || exit 0
+          mkdir -p results && gsutil -m -q cp -r "gs://$d/*" results/ 2>/dev/null || true
+          for f in $(find results -name "logcat" -o -name "*logcat*" | head -20); do
+            echo "=== $f"; grep -a -i -E "netmerge|vpn|blocked|background activity|denied|FATAL|AndroidRuntime" "$f" | grep -a -v -i "chatty" | tail -40 | cut -c1-240
+          done
+          find results -name "*.png" -o -name "*.xml" | head -40
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: testlab-results
+          path: results/
+          if-no-files-found: ignore
+      - name: Run on virtual phones
+        if: always() && github.event.inputs.devices == ''
+        run: |
+          [ -f .only ] && { echo "only the phones named in .github/testlab-run"; exit 0; }
+          gcloud firebase test android run --project netmerge-tests --type instrumentation \
+            --app probe-debug.apk --test probe-debug-androidTest.apk --additional-apks app-universal-release.apk \
+            --test-targets "class dev.netmerge.probe.DeviceSmokeTest" \
+            --device model=MediumPhone.arm,version=29 --device model=MediumPhone.arm,version=34 \
+            --timeout 8m --results-history-name netmerge-virtual

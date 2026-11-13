@@ -40,6 +40,7 @@ type Engine struct {
 	stack *stack.Stack
 	dev   interface{ Close() }
 	stop  chan struct{}
+	fd    int // the VPN's file descriptor (see closeTun)
 	once  sync.Once
 	fails atomic.Int64
 
@@ -59,7 +60,7 @@ func Start(fd int, mtu int, nets []split.Net) (*Engine, error) {
 
 // StartWith is Start with a block list that outlives one engine (the list is loaded once, not at every start).
 func StartWith(fd int, mtu int, nets []split.Net, block *dnsblock.Blocker) (*Engine, error) {
-	e := &Engine{stop: make(chan struct{}), conns: map[net.Conn]int64{}, Block: block}
+	e := &Engine{stop: make(chan struct{}), conns: map[net.Conn]int64{}, Block: block, fd: fd}
 	e.Split.SetNets(nets)
 	dev, err := fdbased.Open(strconv.Itoa(fd), uint32(mtu), 0)
 	if err != nil {
@@ -85,12 +86,30 @@ func (e *Engine) Stop() {
 	e.once.Do(func() {
 		close(e.stop)
 		if e.stack != nil {
-			e.stack.Close()
+			// Destroy, not only Close: it also removes the NIC, which stops the reader that waits on the VPN's file
+			// descriptor. A reader left waiting keeps the VPN open after the descriptor is closed (the kernel keeps
+			// the file while a poll waits on it).
+			e.stack.Destroy()
 		}
 		if e.dev != nil {
 			e.dev.Close()
 		}
+		closeTun(e.fd)
 	})
+}
+
+// closeTun closes the VPN's file descriptor if it is still open. The device's Close leaves it open, and Android keeps
+// the VPN up for as long as it is open: when the app paused merging (battery) but stayed running, every app's traffic
+// went into a VPN that no engine read any more (seen on the emulator: the VPN was still up 20 s later). The number is
+// closed only while it still is the tun device (/dev/net/tun, char 10:200), never a file that reused the number.
+func closeTun(fd int) {
+	var st syscall.Stat_t
+	if fd < 0 || syscall.Fstat(fd, &st) != nil {
+		return
+	}
+	if st.Mode&syscall.S_IFMT == syscall.S_IFCHR && uint64(st.Rdev) == 10<<8|200 {
+		syscall.Close(fd)
+	}
 }
 
 // SetNets updates the networks. Connections on a network that left (or came back as a new network, with a new
@@ -178,11 +197,17 @@ func (e *Engine) dial(proto string, ip net.IP, port int) (net.Conn, split.Net, e
 		// 5 s: a working network answers far sooner; a network that is going away should not hold the app long,
 		// the next try goes to another network.
 		d := net.Dialer{Timeout: 5 * time.Second, Control: control(proto, n.Handle)}
+		t0 := time.Now()
 		c, err := d.Dial(proto, addr)
 		if err == nil {
+			if proto == "tcp" {
+				e.Split.Answered(n.Name, time.Since(t0))
+			}
 			e.track(c, n.Handle)
 			return c, n, nil
 		}
+		// (a failed connection is not counted as a slow answer: right after a network comes back its first few fail,
+		// and counting them cut a working network to a trickle; the next try goes to another network anyway)
 		lastErr = err
 	}
 	e.fails.Add(1)
@@ -193,6 +218,23 @@ func (e *Engine) dial(proto string, ip net.IP, port int) (net.Conn, split.Net, e
 }
 
 var errNoNetwork = &net.AddrError{Err: "no network can reach this address"}
+
+// dialRanked opens a connection on the best network (Splitter.Ranked), or the next if that fails.
+func (e *Engine) dialRanked(proto string, ip net.IP, port int) (net.Conn, split.Net, error) {
+	addr := net.JoinHostPort(ip.String(), strconv.Itoa(port))
+	var lastErr error = errNoNetwork
+	for _, n := range e.Split.Ranked(ip.To4() == nil) {
+		d := net.Dialer{Timeout: 5 * time.Second, Control: control(proto, n.Handle)}
+		c, err := d.Dial(proto, addr)
+		if err == nil {
+			e.track(c, n.Handle)
+			return c, n, nil
+		}
+		lastErr = err
+	}
+	e.fails.Add(1)
+	return nil, split.Net{}, lastErr
+}
 
 // HandleTCP and HandleUDP are called from the stack's packet loop: they must return at once.
 func (e *Engine) HandleTCP(c adapter.TCPConn) { go e.relayTCP(c) }
@@ -262,7 +304,8 @@ func (e *Engine) relayDNS(c adapter.UDPConn, ip net.IP) {
 			continue
 		}
 		if out == nil {
-			o, n, err := e.dial("udp", ip, 53)
+			// DNS goes on the best network (quick to answer), never by share: every page waits for its lookups
+			o, n, err := e.dialRanked("udp", ip, 53)
 			if err != nil {
 				return
 			}

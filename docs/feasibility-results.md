@@ -156,12 +156,16 @@ did in the morning's battery test. The Wi-Fi link to the phone for testing (adb)
   The phone tests now install a shrunk release build instead (R8, about a tenth of the size), checked on the
   emulator first.
 
-## 9. Still open
+## 9. Still open (updated 13 November 2026)
 
-- Battery round 2 (merged with mobile data always up against mobile data on demand, with the splitter fixes and
-  packet size 9000) did not run: the Wi-Fi link for testing (adb over Wi-Fi) closed by itself on the phone in the
-  afternoon and needs the cable once to come back.
-- The newest test build (with: apps left out of merging, only networks with internet merged, the start-up fix, the
-  app icon) is tested on the emulators only.
-- Untested on a real phone: a Wi-Fi without internet, always-on VPN after a restart, Samsung's limits overnight.
-- Two download rounds in the 3-hour run stalled (25 s and 7 s); not explained yet.
+The newer tests are in [test-results.md](test-results.md). Of what was open here on 11 November:
+
+- Always-on VPN after a restart: tested on the phone. It first failed (no internet after the restart, a leftover test
+  VPN service started instead); fixed and passed.
+- The test build with apps left out, only networks with internet, the start-up fix and the icon: tested on the phone,
+  passed.
+- Battery round 2 (mobile data always up against on demand): still open; needs about 80 minutes unplugged.
+- A Wi-Fi network without internet (a hotel login page): still untested on a real phone (NetMerge only uses networks
+  Android has checked for internet).
+- Samsung's limits overnight: still untested.
+- Two download rounds in the 3-hour run stalled (25 s and 7 s): not seen again in later runs; not explained.
