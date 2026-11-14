@@ -64,7 +64,7 @@ jobs:
           go test ./split ./dnsblock
           gomobile init
           mkdir -p ../app/libs
-          CGO_LDFLAGS="-Wl,-z,max-page-size=16384" gomobile bind -target=android/arm64,android/amd64 -androidapi 29 -o ../app/libs/engine.aar ./mobile
+          CGO_LDFLAGS="-Wl,-z,max-page-size=16384" gomobile bind -target=android/arm,android/arm64,android/amd64 -androidapi 29 -o ../app/libs/engine.aar ./mobile
       - name: The release key (from the encrypted secrets)
         env:
           KEY_B64: ${{ secrets.NETMERGE_KEYSTORE_B64 }}

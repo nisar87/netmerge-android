@@ -186,7 +186,11 @@ class MergeVpnService : VpnService() {
     private fun safeStart(gen: Int) {
         try {
             startMerging(gen)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // Throwable: a phone whose processor type has no engine library throws UnsatisfiedLinkError (an Error),
+            // which ended the start thread silently (seen on a Galaxy A10 with 32-bit Android before armeabi-v7a)
+            if (e is VirtualMachineError) throw e
+            if (e is LinkageError) problem = "NetMerge does not support this phone's processor type yet (${Build.SUPPORTED_ABIS.firstOrNull()})."
             Log.e(TAG, "ENGINE start failed", e)
             event("start failed: $e")
             EventLog.error(this, "start merging", e)
@@ -312,7 +316,8 @@ class MergeVpnService : VpnService() {
                         if (Blocklists.on(this)) "${Usage.blockedToday(this)} ads blocked today" else null,
                     ).joinToString(" · "))
                 }
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
+                    if (e is VirtualMachineError) throw e
                     // one bad round must not end merging (an uncaught error here would end the app); the first few
                     // are logged, not every 2 s
                     if (errors++ < 5) EventLog.error(this, "merging's 2 s round", e)

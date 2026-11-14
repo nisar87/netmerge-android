@@ -43,7 +43,7 @@ jobs:
           gomobile init
           mkdir -p ../app/libs
           # 16 KB memory pages (Google Play requires apps to support them): the engine's library must be aligned to 16 KB
-          CGO_LDFLAGS="-Wl,-z,max-page-size=16384" gomobile bind -target=android/arm64,android/amd64 -androidapi 29 -o ../app/libs/engine.aar ./mobile
+          CGO_LDFLAGS="-Wl,-z,max-page-size=16384" gomobile bind -target=android/arm,android/arm64,android/amd64 -androidapi 29 -o ../app/libs/engine.aar ./mobile
           ls -la ../app/libs
           mkdir -p /tmp/aar && unzip -o -q ../app/libs/engine.aar -d /tmp/aar
           for so in /tmp/aar/jni/*/libgojni.so; do
@@ -52,6 +52,8 @@ jobs:
             [ -n "$al" ] || { echo "could not read the alignment"; readelf -lW "$so" | head -30; exit 1; }
             for v in $al; do case $v in 0x4000|0x10000) ;; *) echo "not aligned to 16 KB: $v"; exit 1;; esac; done
           done
+          # every processor type phones have: without armeabi-v7a, 32-bit phones (Galaxy A10) installed NetMerge but could not merge
+          for abi in armeabi-v7a arm64-v8a x86_64; do [ -f /tmp/aar/jni/$abi/libgojni.so ] || { echo "no engine for $abi"; exit 1; }; done
       - name: Allow the emulator to use KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules

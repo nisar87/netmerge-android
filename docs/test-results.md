@@ -82,6 +82,7 @@ VPN service only), screenshots. The engine library's 16 KB page alignment is che
 | Each stop was logged (and reported) twice | Diagnostics | A stop followed by the service's end is logged once |
 | With a large font the dial's numbers overlapped; title, tab names and a button were cut | The owner, on a Galaxy S25 Ultra | Dial text sized from the dial; header stacks; emulator screenshots at 130% font and 115% screen zoom on every change |
 | A test build could not be updated to a release | The owner | Expected: different keys. Release notes say to uninstall a test build once |
+| On a Galaxy A10 (32-bit Android 10) merging could not start: no engine for its processor type | Test Lab, 14 November | The engine is built for armeabi-v7a too; CI checks all three types; a missing engine says so instead of failing silently |
 
 ## Not tested yet
 
