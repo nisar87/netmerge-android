@@ -38,9 +38,15 @@ when both networks are fast; a network dropping mid-download stalls it for under
 - **Diagnostics** (a switch, on by default, on the welcome screen and in Settings), so bugs on other people's phones
   can be found and fixed: see [Diagnostics](#diagnostics).
 
-## Screenshots
+## Screenshots and video
 
-On a Galaxy S26 Ultra (Android 17), from the phone tests.
+Version 0.2.0-beta.4 on a Galaxy S26 Ultra (Android 17), 14 November 2026. The room has slow Wi-Fi (about 6–9 Mbps)
+and a weak mobile signal, so the numbers are small; what matters is both networks working at once.
+
+<img src="docs/media/netmerge-demo.gif" width="300" alt="Merging turned on, a download running over both networks, then each screen">
+
+The full video, 48 seconds: [docs/media/netmerge-demo.mp4](docs/media/netmerge-demo.mp4) (merging on, a download, each
+screen, merging off).
 
 | Home, off | Home, merging | Each network |
 | --- | --- | --- |
@@ -50,7 +56,7 @@ On a Galaxy S26 Ultra (Android 17), from the phone tests.
 | --- | --- | --- |
 | <img src="docs/screenshots/speed-test.png" width="240"> | <img src="docs/screenshots/blocking-dark.png" width="240"> | <img src="docs/screenshots/settings.png" width="240"> |
 
-More in [docs/screenshots](docs/screenshots): dark mode, the speed test before it runs, the rest of the settings.
+More in [docs/screenshots](docs/screenshots): Home and the speed test in dark mode, the rest of the settings.
 
 ## Diagnostics
 
