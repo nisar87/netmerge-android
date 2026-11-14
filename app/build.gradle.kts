@@ -58,7 +58,7 @@ android {
         abi {
             isEnable = true
             reset()
-            include("arm64-v8a", "x86_64")
+            include("armeabi-v7a", "arm64-v8a", "x86_64") // armeabi-v7a: phones with 32-bit Android (Galaxy A10 and other low-cost phones)
             isUniversalApk = true
         }
     }
