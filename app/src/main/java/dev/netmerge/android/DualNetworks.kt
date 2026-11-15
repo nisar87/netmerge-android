@@ -135,6 +135,23 @@ class DualNetworks(context: Context, private val onChange: (() -> Unit)? = null)
         return networks.size == Kind.values().size
     }
 
+    /**
+     * For starting merging: returns as soon as both networks are up; after [graceMs], as soon as one of them reaches
+     * the internet (the other joins by itself when it comes); at the latest after [timeoutMs]. A phone without
+     * mobile data (no SIM, data off) used to wait the whole 15 s before merging began on Wi-Fi alone (seen on a
+     * Galaxy A10 in Test Lab). Returns whether both were up.
+     */
+    fun awaitStart(graceMs: Long, timeoutMs: Long): Boolean {
+        val t0 = SystemClock.elapsedRealtime()
+        while (true) {
+            if (networks.size == Kind.values().size) return true
+            val waited = SystemClock.elapsedRealtime() - t0
+            if (waited >= timeoutMs) return false
+            if (waited >= graceMs && Kind.values().any { usable(it) }) return false
+            SystemClock.sleep(200)
+        }
+    }
+
     fun linkProperties(network: Network): LinkProperties? = cm.getLinkProperties(network)
 
     fun describe(network: Network): String {

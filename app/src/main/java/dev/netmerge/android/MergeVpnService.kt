@@ -202,7 +202,8 @@ class MergeVpnService : VpnService() {
     private fun startMerging(gen: Int) {
         val t0 = SystemClock.elapsedRealtime()
         val n = DualNetworks(this) { networksChanged() }.also { nets = it; it.start() }
-        val both = n.awaitBoth(15_000) // start with what is there; a network that comes later joins by itself
+        // both networks, or after 3 s whichever reaches the internet; a network that comes later joins by itself
+        val both = n.awaitStart(3_000, 15_000)
         event("networks found in ${SystemClock.elapsedRealtime() - t0} ms: " +
             DualNetworks.Kind.values().joinToString { "$it ${if (n.network(it) == null) "not up" else if (n.usable(it)) "usable" else "up, no internet"}" } +
             if (both) "" else " (going on with what is there)")
