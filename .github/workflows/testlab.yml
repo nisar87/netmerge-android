@@ -83,6 +83,12 @@ jobs:
           mkdir -p results && gsutil -m -q cp -r "gs://$d/*" results/ 2>/dev/null || true
           for f in $(find results -name "logcat" -o -name "*logcat*" | head -20); do
             echo "=== $f"; grep -a -i -E "netmerge|vpn|blocked|background activity|denied|FATAL|AndroidRuntime" "$f" | grep -a -v -i "chatty" | tail -40 | cut -c1-240
+            # NetMerge's own lines and the errors that matter, whatever else the phone logged
+            echo "--- NetMerge on $f"; grep -a -E "NetMergeSpike|UnsatisfiedLink|E AndroidRuntime|DeviceSmokeTest|TestRunner" "$f" | grep -a -v "Rejecting re-init" | head -60 | cut -c1-300
+          done
+          # why a test failed, from its result file
+          for x in $(find results -name "test_result_*.xml"); do
+            echo "=== $x"; grep -a -o '<failure[^>]*>[^<]*' "$x" | head -3 | cut -c1-1500
           done
           find results -name "*.png" -o -name "*.xml" | head -40
       - uses: actions/upload-artifact@v4
