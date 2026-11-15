@@ -5,7 +5,7 @@ Where NetMerge for Android stands, test by test. As of 13 November 2026, version
 | Where | What | Result |
 | --- | --- | --- |
 | Galaxy S26 Ultra, Android 17 (the owner's phone, over adb) | Every feature, real Wi-Fi and real mobile data | All pass after the fixes below |
-| Firebase Test Lab, 6 real phones of other makers + 2 virtual | Start, VPN, pages through it, stop, screens | All pass |
+| Firebase Test Lab, 9 real phones of other makers + 2 virtual | Start, VPN, pages through it, stop, screens | All pass (Galaxy A10 after a fix) |
 | Android emulators, API 34 and 35 | Full suite on every change | All pass |
 | Unit tests (Go engine) | Splitter, DNS blocking | All pass |
 
@@ -58,6 +58,11 @@ is answered, the VPN comes up, pages open through it, each screen is photographe
 | Virtual phone | 10 | Pass |
 | Virtual phone | 14 | Pass |
 | Xiaomi 14 | 15 | Pass (13 November; the first run failed in the test, not the app: HyperOS blocked the test app from opening NetMerge, so the test now opens it the way a person does) |
+| Google Pixel 10 Pro | 16 | Pass (14 November) |
+| Sony Xperia 1 V | 14 | Pass (14 November) |
+| Nothing Phone (4a) | 16 | Pass (14 November) |
+| Samsung Galaxy A10 (32-bit Android) | 10 | Pass (15 November; on 14 November merging could not start: no engine for 32-bit ARM, fixed in 0.2.0-beta.5) |
+| OnePlus 11 5G | 14 | Not run: no phone free in Test Lab within an hour, twice |
 
 ## Emulators, on every change
 

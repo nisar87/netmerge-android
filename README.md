@@ -7,9 +7,9 @@ one single connection still uses one network.
 
 **Status: public beta** ([latest release](https://github.com/nisar87/netmerge-android/releases); install the APK from
 there; NetMerge offers each new version itself). Not on Google Play yet. Android 10 or newer; targets Android 16 and
-supports 16 KB memory pages (both needed for Google Play). Tested on seven real phone models: Galaxy S26 Ultra (every
-feature, real mobile data), and in Firebase Test Lab a Galaxy S22, Pixel 8a, Motorola razr plus 2024, Oppo and Xiaomi
-14 (Android 13 to 16), plus virtual phones on Android 10 and 14. Measured on the Galaxy S26 Ultra: about +38% for downloads with many connections
+supports 16 KB memory pages (both needed for Google Play). Tested on ten real phone models: Galaxy S26 Ultra (every
+feature, real mobile data), and in Firebase Test Lab a Galaxy S22, Galaxy A10, Pixel 8a, Pixel 10 Pro, Motorola razr plus 2024,
+Oppo, Xiaomi 14, Sony Xperia 1 V and Nothing Phone (4a) (Android 10 to 16), plus virtual phones on Android 10 and 14. Measured on the Galaxy S26 Ultra: about +38% for downloads with many connections
 when both networks are fast; a network dropping mid-download stalls it for under 1 s. Test by test:
 [docs/test-results.md](docs/test-results.md); first measurements and costs: [docs/feasibility-results.md](docs/feasibility-results.md).
 
