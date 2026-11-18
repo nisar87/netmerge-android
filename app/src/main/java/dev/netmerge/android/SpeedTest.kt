@@ -38,37 +38,50 @@ object SpeedTest {
 
     private val stop = AtomicBoolean(false)
     fun cancel() = stop.set(true)
+    fun stopped() = stop.get()
 
     /**
-     * Runs the whole test (about 70 s with both networks) and reports each step. wifi/mobile: the networks (null when
-     * not there); secs: per direction and network.
+     * Runs the whole test (about 70 s with both networks) and reports each step. wifi: Wi-Fi now (null when not
+     * there); mobile: asked for only when its turn comes, and may wait for mobile data to wake (many phones keep it
+     * asleep while on Wi-Fi): the Wi-Fi part no longer waits for it (it sat up to 40 s on "Waking mobile data" first,
+     * which felt stuck). secs: per direction and network.
      */
-    fun run(wifi: Network?, mobile: Network?, secs: Double = 8.0, report: (State) -> Unit) {
+    fun run(wifi: Network?, mobile: () -> Network?, secs: Double = 8.0, report: (State) -> Unit) {
         stop.set(false)
         val rows = ArrayList<Row>()
         var mobileBytes = 0L
         var failed: String? = null // why the last measure got nothing
-        val steps = listOfNotNull(wifi, mobile).size * 2 + (if (wifi != null && mobile != null) 2 else 0)
+        var steps = (if (wifi != null) 2 else 0) + 4 // counting on mobile data and both together; fixed when it is known
         var step = 0
         var st = State(running = true)
         fun show(s: State) { st = s; report(s) }
+        var mob: Network? = null
         fun measure(label: String, nets: List<Pair<Network, Int>>, upload: Boolean): Double {
-            val r = transfer(nets, upload, secs) { now -> show(st.copy(phase = label, now = now, upload = upload, progress = (step + 0.5f) / steps)) }
+            val r = transfer(nets, upload, secs) { now, part ->
+                show(st.copy(running = true, phase = label, now = now, upload = upload, progress = ((step + part) / steps).toFloat().coerceIn(0f, 1f)))
+            }
             step++
-            mobileBytes += mobile?.let { r.second[it] } ?: 0L // only what went over mobile data counts against the plan
+            mobileBytes += mob?.let { r.second[it] } ?: 0L // only what went over mobile data counts against the plan
             if (r.first == 0.0) failed = lastError ?: if (upload) "too slow to measure" else null
             return r.first
         }
         val alone = HashMap<Network, Double>()
-        for ((net, name) in listOfNotNull(wifi?.let { it to "Wi-Fi" }, mobile?.let { it to "Mobile data" })) {
-            if (stop.get()) break
+        fun alone(net: Network, name: String) {
             failed = null
             val d = measure("$name: download", listOf(net to CONNS), false)
             val u = measure("$name: upload", listOf(net to CONNS / 2), true)
             alone[net] = d
             rows += Row(name, d, u, failed?.let { (if (d == 0.0) "download" else "upload") + " failed: " + it })
-            show(st.copy(rows = rows.toList(), mobileMB = mobileBytes / 1e6))
+            show(st.copy(rows = rows.toList(), mobileMB = mobileBytes / 1e6, now = 0.0))
         }
+        if (wifi != null && !stop.get()) alone(wifi, "Wi-Fi")
+        if (!stop.get()) {
+            show(st.copy(phase = "Waking mobile data", now = 0.0, upload = false))
+            mob = mobile()
+        }
+        val mobile = mob
+        steps = (if (wifi != null) 2 else 0) + (if (mobile != null) 2 else 0) + (if (wifi != null && mobile != null) 2 else 0)
+        if (mobile != null && !stop.get()) alone(mobile, "Mobile data")
         if (wifi != null && mobile != null && !stop.get()) {
             // connections shared by each network's speed alone (at least 2 each), as the engine shares new connections
             val dw = alone[wifi] ?: 0.0
@@ -88,7 +101,7 @@ object SpeedTest {
     /** The last error of the last transfer (shown when a direction got nothing). */
     @Volatile var lastError: String? = null
 
-    private fun transfer(nets: List<Pair<Network, Int>>, upload: Boolean, secs: Double, now: (Double) -> Unit): Pair<Double, Map<Network, Long>> {
+    private fun transfer(nets: List<Pair<Network, Int>>, upload: Boolean, secs: Double, now: (Double, Double) -> Unit): Pair<Double, Map<Network, Long>> {
         val bytes = AtomicLong()
         val perNet = nets.associate { it.first to AtomicLong() }
         lastError = null
@@ -167,19 +180,21 @@ object SpeedTest {
                 }
             }
         }
-        // the speed right now, over the last second; the result counts from 2 s on (connections opened, speed settled)
-        var lastB = 0L
-        var lastT = t0
+        // the speed right now, shown 4 times a second over a sliding window (1 s for downloads; 2 s for uploads, which
+        // are counted a request at a time); the result counts from 2 s on (connections opened, speed settled)
+        val window = if (upload) 2000L else 1000L
+        val samples = ArrayDeque<Pair<Long, Long>>()
+        samples.addLast(t0 to 0L)
         var at2s = -1L
         var t2 = 0L
         while (SystemClock.elapsedRealtime() < deadline && !stop.get()) {
             SystemClock.sleep(250)
             val t = SystemClock.elapsedRealtime()
             val b = bytes.get()
-            if (t - lastT >= 1000) {
-                now((b - lastB) * 8.0 / ((t - lastT) / 1000.0) / 1e6)
-                lastB = b; lastT = t
-            }
+            samples.addLast(t to b)
+            while (samples.size > 2 && t - samples[1].first >= window) samples.removeFirst()
+            val (ta, ba) = samples.first()
+            now(if (t > ta) (b - ba) * 8.0 / ((t - ta) / 1000.0) / 1e6 else 0.0, (t - t0).toDouble() / (deadline - t0))
             if (at2s < 0 && t - t0 >= 2000) { at2s = b; t2 = t }
         }
         val end = SystemClock.elapsedRealtime()

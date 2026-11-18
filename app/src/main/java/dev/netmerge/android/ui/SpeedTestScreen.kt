@@ -38,24 +38,29 @@ suspend fun runSpeedTest(ctx: Context) = withContext(Dispatchers.IO) {
     SpeedTestRun.max.value = 100.0
     val n = DualNetworks(ctx)
     n.start()
-    n.awaitBoth(10_000)
-    // many phones keep mobile data asleep while on Wi-Fi: waking it and checking it works can take 20 s or more
-    // (seen on a Galaxy S26 Ultra: 10 s was not enough)
-    val until = android.os.SystemClock.elapsedRealtime() + 30_000
-    while (android.os.SystemClock.elapsedRealtime() < until &&
-        !(n.usable(DualNetworks.Kind.WIFI) && n.usable(DualNetworks.Kind.MOBILE))) {
-        SpeedTestRun.state.value = SpeedTest.State(running = true, phase = "Waking mobile data")
-        Thread.sleep(500)
-    }
+    // Wi-Fi starts as soon as it is there; mobile data wakes meanwhile (many phones keep it asleep while on Wi-Fi:
+    // 20 s or more on a Galaxy S26 Ultra) and is waited for only when its turn comes
+    n.awaitStart(1_000, 10_000)
     val wifi = n.network(DualNetworks.Kind.WIFI)?.takeIf { n.usable(DualNetworks.Kind.WIFI) }
-    val mobile = n.network(DualNetworks.Kind.MOBILE)?.takeIf { n.usable(DualNetworks.Kind.MOBILE) }
+    var mobile: android.net.Network? = null
     try {
-        if (wifi == null && mobile == null) {
+        if (wifi == null && !n.usable(DualNetworks.Kind.MOBILE) && n.network(DualNetworks.Kind.MOBILE) == null) {
             SpeedTestRun.state.value = SpeedTest.State(phase = "No network to test")
             dev.netmerge.android.EventLog.add(ctx, "speed test: no network to test")
             return@withContext
         }
-        SpeedTest.run(wifi, mobile) { s ->
+        SpeedTest.run(wifi, {
+            // mobile data switched off in the phone's settings (or no SIM): nothing to wait for
+            val on = runCatching { LiveReader.mobileDataOn(ctx) }.getOrDefault(true)
+            val until = android.os.SystemClock.elapsedRealtime() + if (on) 30_000 else 3_000
+            while (!n.usable(DualNetworks.Kind.MOBILE) && !SpeedTest.stopped()) {
+                val left = (until - android.os.SystemClock.elapsedRealtime()) / 1000
+                if (left < 0) break
+                SpeedTestRun.state.value = SpeedTestRun.state.value.copy(phase = "Waking mobile data… up to $left s", now = 0.0)
+                Thread.sleep(250)
+            }
+            n.network(DualNetworks.Kind.MOBILE)?.takeIf { n.usable(DualNetworks.Kind.MOBILE) }.also { mobile = it }
+        }) { s ->
             // the scale only grows during a test, so the needle does not jump when it changes
             val m = gaugeMax(maxOf(s.now, s.rows.maxOfOrNull { maxOf(it.down, it.up) } ?: 0.0))
             if (m > SpeedTestRun.max.value) SpeedTestRun.max.value = m
