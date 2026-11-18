@@ -16,4 +16,6 @@ else
   echo "warning: the emulator's mobile data was not usable for the speed test; only Wi-Fi tested"
 fi
 echo "$r" | grep -q '"down":0,' && echo "warning: a network got no download (test server not reachable from the emulator?)"
+# upload is counted when the server has it all: Wi-Fi must show an upload speed and no error
+echo "$r" | jq -e '.rows[] | select(.label == "Wi-Fi") | (.up > 0 and .error == "")' > /dev/null || { echo "Wi-Fi upload failed or measured nothing"; exit 1; }
 echo "speedtest: OK"

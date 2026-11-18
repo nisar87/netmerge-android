@@ -56,7 +56,7 @@ object SpeedTest {
             val r = transfer(nets, upload, secs) { now -> show(st.copy(phase = label, now = now, upload = upload, progress = (step + 0.5f) / steps)) }
             step++
             mobileBytes += mobile?.let { r.second[it] } ?: 0L // only what went over mobile data counts against the plan
-            if (r.first == 0.0) failed = lastError
+            if (r.first == 0.0) failed = lastError ?: if (upload) "too slow to measure" else null
             return r.first
         }
         val alone = HashMap<Network, Double>()
@@ -95,10 +95,12 @@ object SpeedTest {
         val t0 = SystemClock.elapsedRealtime()
         val deadline = t0 + ((secs + 2) * 1000).toLong() // 2 s to get going, not counted
         val chunk = ByteArray(64 shl 10) { (it * 31).toByte() }
+        val open = java.util.concurrent.ConcurrentHashMap.newKeySet<HttpURLConnection>() // uploads under way
         val workers = nets.flatMap { (net, n) ->
             List(n) {
                 thread(name = "speedtest") {
                     val buf = ByteArray(64 shl 10)
+                    var upSize = 256L shl 10 // one upload request's size: starts small, grows on a fast line
                     while (SystemClock.elapsedRealtime() < deadline && !stop.get()) {
                         try {
                             val di = downAt.get()
@@ -106,17 +108,37 @@ object SpeedTest {
                             c.connectTimeout = 8_000
                             c.readTimeout = 8_000
                             if (upload) {
+                                // an upload counts when the server has it all (its answer), not when it is handed to
+                                // the phone's buffers: those take megabytes in a moment, so the old way counted fast
+                                // at first and then nothing on a slow line, and a body cut short at the end raised
+                                // "unexpected end of stream" (seen on a Galaxy S25 Ultra: upload 0.0 Mbps)
                                 c.requestMethod = "POST"
                                 c.doOutput = true
-                                c.setFixedLengthStreamingMode(10L shl 20)
+                                c.setFixedLengthStreamingMode(upSize)
                                 c.setRequestProperty("Content-Type", "application/octet-stream")
+                                open.add(c)
+                                val began = SystemClock.elapsedRealtime()
                                 c.outputStream.use { out ->
                                     var sent = 0L
-                                    while (sent < (10L shl 20) && SystemClock.elapsedRealtime() < deadline && !stop.get()) {
-                                        out.write(chunk); sent += chunk.size; bytes.addAndGet(chunk.size.toLong()); perNet[net]!!.addAndGet(chunk.size.toLong())
+                                    while (sent < upSize) {
+                                        if (stop.get()) throw java.io.InterruptedIOException("stopped")
+                                        val k = minOf(chunk.size.toLong(), upSize - sent).toInt()
+                                        out.write(chunk, 0, k); sent += k
+                                        perNet[net]!!.addAndGet(k.toLong()) // data used: all that was sent, finished or not
                                     }
                                 }
-                                runCatching { c.responseCode }
+                                val code = c.responseCode
+                                open.remove(c)
+                                if (code in 200..299) {
+                                    if (SystemClock.elapsedRealtime() <= deadline) {
+                                        bytes.addAndGet(upSize)
+                                    }
+                                    // fast line: bigger requests (fewer round trips); slow line: they stay small
+                                    if (SystemClock.elapsedRealtime() - began < 1500 && upSize < (8L shl 20)) upSize *= 2
+                                } else {
+                                    lastError = "server answered $code"
+                                    SystemClock.sleep(200)
+                                }
                             } else {
                                 if (c.responseCode !in 200..299) {
                                     lastError = "server answered ${c.responseCode}"
@@ -136,7 +158,9 @@ object SpeedTest {
                             }
                             c.disconnect()
                         } catch (e: Exception) {
-                            lastError = e.javaClass.simpleName + (e.message?.let { ": " + it.take(60) } ?: "")
+                            // an upload still running at the end is cut off on purpose (below): not an error
+                            if (SystemClock.elapsedRealtime() < deadline && !stop.get())
+                                lastError = e.javaClass.simpleName + (e.message?.let { ": " + it.take(60) } ?: "")
                             SystemClock.sleep(300)
                         }
                     }
@@ -160,6 +184,7 @@ object SpeedTest {
         }
         val end = SystemClock.elapsedRealtime()
         val total = bytes.get()
+        open.forEach { runCatching { it.disconnect() } } // uploads still under way: their workers end now
         workers.forEach { it.join(3000) }
         val mbps = if (at2s >= 0 && end > t2) (total - at2s) * 8.0 / ((end - t2) / 1000.0) / 1e6 else 0.0
         return mbps to perNet.mapValues { it.value.get() }
