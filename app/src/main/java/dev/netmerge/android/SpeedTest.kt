@@ -70,6 +70,9 @@ object SpeedTest {
             failed = null
             val d = measure("$name: download", listOf(net to CONNS), false)
             val u = measure("$name: upload", listOf(net to CONNS / 2), true)
+            // stopped half way: no result for this network rather than a false "failed" (the owner stopped a test
+            // and saw "download failed: too slow to measure" and "did not come up")
+            if (stop.get()) return
             alone[net] = d
             rows += Row(name, d, u, failed?.let { (if (d == 0.0) "download" else "upload") + " failed: " + it })
             show(st.copy(rows = rows.toList(), mobileMB = mobileBytes / 1e6, now = 0.0))
@@ -89,9 +92,9 @@ object SpeedTest {
             val wConns = if (dw + dm > 0) (CONNS * dw / (dw + dm)).toInt().coerceIn(2, CONNS - 2) else CONNS / 2
             val d = measure("Both together: download", listOf(wifi to wConns, mobile to CONNS - wConns), false)
             val u = measure("Both together: upload", listOf(wifi to maxOf(1, wConns / 2), mobile to maxOf(1, (CONNS - wConns) / 2)), true)
-            rows += Row("Both together", d, u)
+            if (!stop.get()) rows += Row("Both together", d, u)
         }
-        show(State(running = false, phase = if (stop.get()) "Stopped" else "Done", rows = rows.toList(), mobileMB = mobileBytes / 1e6, done = !stop.get()))
+        show(State(running = false, phase = if (!stop.get()) "Done" else if (rows.isEmpty()) "Stopped before a network finished" else "Stopped: results for the networks that finished", rows = rows.toList(), mobileMB = mobileBytes / 1e6, done = !stop.get()))
     }
 
     /**
