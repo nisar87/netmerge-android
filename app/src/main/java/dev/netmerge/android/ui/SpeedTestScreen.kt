@@ -69,7 +69,7 @@ suspend fun runSpeedTest(ctx: Context) = withContext(Dispatchers.IO) {
     } finally {
         n.stop()
     }
-    if (mobile == null && wifi != null) {
+    if (mobile == null && wifi != null && !SpeedTest.stopped()) {
         // say why there is no merged result, rather than leaving it out
         val st = SpeedTestRun.state.value
         SpeedTestRun.state.value = st.copy(rows = st.rows + SpeedTest.Row("Mobile data", error = "did not come up: is it on?"))
