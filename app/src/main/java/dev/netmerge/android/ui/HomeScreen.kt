@@ -32,7 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @Composable
-fun HomeScreen(live: Live, starting: Boolean, onToggle: () -> Unit) {
+fun HomeScreen(live: Live, starting: Boolean, onOpenTest: () -> Unit = {}, onToggle: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
     val wifiColor = scheme.primary
     val mobileColor = scheme.secondary
@@ -70,6 +70,26 @@ fun HomeScreen(live: Live, starting: Boolean, onToggle: () -> Unit) {
         } else Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             header(Modifier.weight(1f))
             MergeSwitch(on, starting, onToggle)
+        }
+        // a speed test running: it measures each network outside merging (that is how it can test Wi-Fi and mobile
+        // data alone), so the dial below does not count it; this card shows it here (the owner, on a Galaxy S25 Ultra:
+        // "the main screen is still idle while the speed test runs")
+        val test = SpeedTestRun.state.value
+        if (test.running) {
+            Spacer(Modifier.height(12.dp))
+            Card(onClick = onOpenTest, shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = scheme.secondaryContainer)) {
+                Column(Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Speed, null, tint = scheme.onSecondaryContainer)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Speed test: ${test.phase}", style = MaterialTheme.typography.titleSmall, color = scheme.onSecondaryContainer, modifier = Modifier.weight(1f))
+                        if (test.now > 0) Text("${speedText(test.now)} Mbps", style = MaterialTheme.typography.titleSmall.merge(Numbers), color = scheme.onSecondaryContainer)
+                    }
+                    LinearProgressIndicator(progress = { test.progress }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(4.dp), drawStopIndicator = {})
+                    Text("It tests each network on its own, outside merging, so the dial below does not count it. Tap to watch it.",
+                        style = MaterialTheme.typography.bodySmall, color = scheme.onSecondaryContainer, modifier = Modifier.padding(top = 6.dp))
+                }
+            }
         }
         // a newer version: download opens it in the browser, which installs it over this one
         val newer = dev.netmerge.android.UpdateState.newer.value
