@@ -38,8 +38,8 @@ jobs:
           go get golang.org/x/mobile/bind@latest
           go mod tidy
           go get golang.org/x/mobile/bind@latest
-          go vet ./split
-          go test ./split
+          go vet ./split ./tun
+          go test ./split ./tun
           gomobile init
           mkdir -p ../app/libs
           # 16 KB memory pages (Google Play requires apps to support them): the engine's library must be aligned to 16 KB
