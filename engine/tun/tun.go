@@ -140,6 +140,10 @@ func (e *Engine) SetNets(nets []split.Net) {
 	for c, h := range e.conns {
 		if !live[h] {
 			dead = append(dead, c)
+			// forgotten at once, not when its relay ends: networks often change several times within a second
+			// (Wi-Fi lost, back, checked), and each change closed and counted the same connections again (seen in
+			// a report: "5 connections closed" six times and 38 drops for about 13 connections)
+			delete(e.conns, c)
 		}
 	}
 	e.connMu.Unlock()
