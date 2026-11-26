@@ -42,6 +42,14 @@ type line struct {
 	answers               int     // connections opened (for rtt)
 	busy                  float64 // seconds it has had connections open (judging a slow network needs no 2 MB)
 	mode                  string  // how it is treated now (see modeOf), for the log
+	// A network cut to a trickle for being much slower gets few new connections, often only long quiet ones (push
+	// messages), so it rarely shows that it got faster: seen on a phone, Wi-Fi stayed at a trickle for hours next to
+	// slower mobile data. So now and then it gets a second chance: grace seconds with a fair share, in which it is not
+	// judged slow. Each chance that fails doubles the wait for the next one (retry), up to retryMax.
+	trickled float64 // seconds in a row at a trickle for being much slower
+	retry    float64 // seconds at a trickle before the next second chance (0: retryFirst)
+	grace    float64 // seconds left of a second chance
+	good     float64 // seconds in a row at a full share (after goodFor, a later trickle starts again at retryFirst)
 }
 
 // Splitter hands out networks to new connections.
@@ -78,6 +86,11 @@ const (
 	// wait for it (seen on the phone with mobile data at about 1 Mbps next to 60 Mbps Wi-Fi).
 	slowPart = 0.15
 	trickle  = 32
+	// second chances for a network at a trickle for being much slower (see line.trickled)
+	retryFirst = 30.0
+	retryMax   = 600.0
+	graceFor   = 15.0
+	goodFor    = 60.0
 )
 
 // SetNets replaces the list of networks, keeping what was learned about networks that stay.
@@ -139,7 +152,7 @@ func (s *Splitter) Tick(seconds float64) {
 		}
 		// slow, not idle: it has connections open and is far below its learned speed while another network moves
 		// data at the same time (so the apps do want data now; when all are quiet, nothing is judged)
-		if busy && l.busy > 3 && rate < l.cap/4 && top >= 4*idleBps && rate < top/4 {
+		if busy && l.busy > 3 && l.grace <= 0 && rate < l.cap/4 && top >= 4*idleBps && rate < top/4 {
 			l.cap *= math.Pow(slowForget, seconds)
 			if rate > l.cap {
 				l.cap = rate
@@ -160,7 +173,45 @@ func (s *Splitter) Tick(seconds float64) {
 			l.cap = minCap
 		}
 	}
+	s.secondChances(seconds)
 	s.noteModes()
+}
+
+// secondChances gives a network that has been at a trickle for being much slower a fair share again for a while, so
+// it can show that it got faster. Called with s.mu held.
+func (s *Splitter) secondChances(seconds float64) {
+	fastest, quickest := s.bests(false)
+	for _, l := range s.lines {
+		if l.grace > 0 {
+			l.grace -= seconds
+			if l.grace < 0 {
+				l.grace = 0
+			}
+			continue
+		}
+		switch l.modeOf(fastest, quickest) {
+		case "trickle: much slower":
+			l.good = 0
+			l.trickled += seconds
+			if l.retry == 0 {
+				l.retry = retryFirst
+			}
+			if l.trickled >= l.retry {
+				l.trickled = 0
+				l.retry = math.Min(2*l.retry, retryMax)
+				l.grace = graceFor
+				if l.cap < fastest/2 {
+					l.cap = fastest / 2
+				}
+			}
+		case "full share":
+			l.trickled = 0
+			l.good += seconds
+			if l.good >= goodFor {
+				l.retry = 0
+			}
+		}
+	}
 }
 
 // modeOf says how a network is treated now (the same tests as weight, for IPv4 connections).
@@ -168,6 +219,8 @@ func (l *line) modeOf(fastest, quickest float64) string {
 	switch {
 	case l.slowToAnswer(quickest) && !(l.rx.Load() > measured && l.cap >= fastest):
 		return "trickle: slow to answer"
+	case l.grace > 0:
+		return "second chance"
 	case l.rx.Load() <= measured && l.busy < judged:
 		return "learning"
 	case l.cap < slowPart*fastest:

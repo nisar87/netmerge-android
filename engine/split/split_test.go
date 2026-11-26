@@ -333,6 +333,95 @@ func TestNoteTellsTreatmentChanges(t *testing.T) {
 	}
 }
 
+func shareOf(s *Splitter, name string) float64 {
+	for _, st := range s.Stats() {
+		if st.Name == name {
+			return st.Share
+		}
+	}
+	return -1
+}
+
+// trickledWifi: Wi-Fi was as fast as mobile data, then for a minute carried nothing on the one quiet connection it
+// kept open (a push message socket) while mobile data moved 700 KB/s: it is cut to a trickle.
+func trickledWifi(t *testing.T) (s *Splitter, wrx, mrx interface{ Add(int64) int64 }) {
+	s = &Splitter{}
+	s.SetNets([]Net{{Name: "wifi", V4: true}, {Name: "mobile", V4: true}})
+	w, _, wact := s.Counter("wifi")
+	m, _, _ := s.Counter("mobile")
+	for i := 0; i < 25; i++ {
+		w.Add(1_000_000)
+		m.Add(1_000_000)
+		s.Tick(1)
+	}
+	wact.Add(1)
+	for i := 0; i < 20; i++ {
+		m.Add(700_000)
+		s.Tick(1)
+	}
+	if sh := shareOf(s, "wifi"); sh > 0.05 {
+		t.Fatalf("setup: quiet Wi-Fi not cut to a trickle, share %.2f", sh)
+	}
+	return s, w, m
+}
+
+// A network at a trickle gets a second chance after a while, and keeps its share when it shows it is fast (seen on a
+// phone: Wi-Fi stayed at a trickle for hours next to slower mobile data; it only ever got long quiet connections).
+func TestTrickledNetworkGetsASecondChance(t *testing.T) {
+	s, wrx, mrx := trickledWifi(t)
+	var notes []string
+	s.Note = func(m string) { notes = append(notes, m) }
+	chance := -1
+	for i := 0; i < 60 && chance < 0; i++ {
+		mrx.Add(700_000)
+		s.Tick(1)
+		if shareOf(s, "wifi") > 0.2 {
+			chance = i
+		}
+	}
+	if chance < 0 {
+		t.Fatalf("Wi-Fi at a trickle got no second chance within a minute")
+	}
+	for i := 0; i < 120; i++ { // given connections, it now carries 2 MB/s
+		wrx.Add(2_000_000)
+		mrx.Add(700_000)
+		s.Tick(1)
+	}
+	if sh := shareOf(s, "wifi"); sh < 0.6 {
+		t.Fatalf("Wi-Fi proved fast in its second chance but has a share of %.2f", sh)
+	}
+	joined := ""
+	for _, n := range notes {
+		joined += n + "\n"
+	}
+	if !contains(joined, "wifi: second chance") {
+		t.Fatalf("notes:\n%s", joined)
+	}
+}
+
+// A network that really is far slower goes back to a trickle after each second chance, and the chances become rare.
+func TestSlowNetworkSecondChancesBackOff(t *testing.T) {
+	s, wrx, mrx := trickledWifi(t)
+	fair := 0
+	for i := 0; i < 1800; i++ { // half an hour: Wi-Fi carries 1 KB/s whatever it is given
+		wrx.Add(1_000)
+		mrx.Add(700_000)
+		s.Tick(1)
+		if shareOf(s, "wifi") > 0.1 {
+			fair++
+		}
+	}
+	if fair > 180 {
+		t.Fatalf("slow Wi-Fi had a fair share for %d of 1800 s, want under a tenth", fair)
+	}
+	if fair == 0 {
+		t.Fatalf("slow Wi-Fi never got a second chance")
+	}
+	if sh := shareOf(s, "wifi"); sh > 0.05 {
+		t.Fatalf("slow Wi-Fi ends with a share of %.2f", sh)
+	}
+}
+
 func contains(s, sub string) bool {
 	for i := 0; i+len(sub) <= len(s); i++ {
 		if s[i:i+len(sub)] == sub {
