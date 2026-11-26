@@ -57,6 +57,9 @@ type Engine struct {
 	conns  map[net.Conn]int64 // open outgoing connections and the network handle each is bound to
 	drops  atomic.Int64
 	began  time.Time
+	// netsSaid: the networks last written to the log; Android often tells the same networks several times within a
+	// second, and each was logged (five identical "networks now" lines in a row in reports)
+	netsSaid string
 }
 
 // Start runs the engine on the VPN's file descriptor.
@@ -69,6 +72,7 @@ func StartWith(fd int, mtu int, nets []split.Net, block *dnsblock.Blocker) (*Eng
 	e := &Engine{stop: make(chan struct{}), conns: map[net.Conn]int64{}, Block: block, fd: fd, began: time.Now()}
 	e.Split.Note = func(s string) { events.Addf("splitter %s", s) }
 	e.Split.SetNets(nets)
+	e.netsSaid = describe(nets)
 	dev, err := fdbased.Open(strconv.Itoa(fd), uint32(mtu), 0)
 	if err != nil {
 		events.Addf("engine: the VPN device could not be opened: %v", err)
@@ -146,12 +150,18 @@ func (e *Engine) SetNets(nets []split.Net) {
 			delete(e.conns, c)
 		}
 	}
+	d := describe(nets)
+	same := d == e.netsSaid
+	e.netsSaid = d
 	e.connMu.Unlock()
 	for _, c := range dead {
 		_ = c.Close()
 	}
 	e.drops.Add(int64(len(dead)))
-	events.Addf("engine: networks now %s; %d connections closed (their network left)", describe(nets), len(dead))
+	if same && len(dead) == 0 {
+		return
+	}
+	events.Addf("engine: networks now %s; %d connections closed (their network left)", d, len(dead))
 }
 
 // describe: "wifi(v4,v6) mobile(v4)" (no addresses).

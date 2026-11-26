@@ -89,6 +89,7 @@ VPN service only), screenshots. The engine library's 16 KB page alignment is che
 | A test build could not be updated to a release | The owner | Expected: different keys. Release notes say to uninstall a test build once |
 | On a Galaxy A10 (32-bit Android 10) merging could not start: no engine for its processor type | Test Lab, 14 November | The engine is built for armeabi-v7a too; CI checks all three types; a missing engine says so instead of failing silently |
 | When Wi-Fi left and came back within a second, the same connections were closed and counted again (38 drops for about 13) | Diagnostics, 18 November | A closed connection is forgotten at once; an engine test changes networks five times in a row |
+| Wi-Fi cut to a trickle stayed there for hours next to slower mobile data: it only got long quiet connections, so it never showed it was fast again | Diagnostics, 26 November | A network at a trickle gets a 15 s second chance after 30 s, then after 1, 2, 4 ... up to 10 min while it stays slow; the same networks told again are logged once |
 
 ## Not tested yet
 
