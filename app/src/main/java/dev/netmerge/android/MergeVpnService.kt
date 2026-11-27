@@ -449,9 +449,23 @@ class MergeVpnService : VpnService() {
         super.onRevoke()
     }
 
+    // Android tells "low on memory" many times a minute on some phones (Galaxy A7 2018: levels 10 and 15 in turn, about
+    // 20 lines in 3 minutes, burying the rest of the log): one line per level change or per 10 minutes, with how many
+    // were not written, and this app's own memory then (so a report shows whether NetMerge is the one using it)
+    private var memSaidAt = 0L
+    private var memSaidLevel = 0
+    private var memUnsaid = 0
+
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (level >= TRIM_MEMORY_RUNNING_LOW) event("memory: the phone is low on memory (level $level)")
+        if (level < TRIM_MEMORY_RUNNING_LOW) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (level <= memSaidLevel && now - memSaidAt < 10 * 60_000L) { memUnsaid++; return }
+        val rt = Runtime.getRuntime()
+        val mine = runCatching { android.os.Debug.getPss() / 1024 }.getOrDefault(-1L)
+        event("memory: the phone is low on memory (level $level" + (if (memUnsaid > 0) "; told $memUnsaid more times since the last line" else "") +
+            "); NetMerge uses $mine MB, Java heap ${(rt.totalMemory() - rt.freeMemory()) shr 20} MB")
+        memSaidAt = now; memSaidLevel = level; memUnsaid = 0
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {

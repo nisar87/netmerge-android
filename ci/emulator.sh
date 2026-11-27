@@ -36,6 +36,7 @@ sh ci/limit.sh || exit 1
 sh ci/roaming.sh || exit 1
 sh ci/exclude.sh || exit 1
 sh ci/battery.sh || exit 1
+sh ci/memory.sh || exit 1
 sh ci/system.sh || exit 1
 sh ci/blocking.sh || exit 1
 sh ci/speedtest.sh || exit 1

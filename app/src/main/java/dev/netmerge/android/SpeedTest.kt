@@ -37,6 +37,10 @@ object SpeedTest {
     )
 
     private val stop = AtomicBoolean(false)
+
+    /** Told once per network and test when a socket could not be bound to it (for the log; see DualNetworks.stateOf). */
+    @Volatile var onBindFailed: ((Network, String) -> Unit)? = null
+    private val bindTold = java.util.concurrent.ConcurrentHashMap.newKeySet<Network>()
     fun cancel() = stop.set(true)
     fun stopped() = stop.get()
 
@@ -48,6 +52,7 @@ object SpeedTest {
      */
     fun run(wifi: Network?, mobile: () -> Network?, secs: Double = 8.0, report: (State) -> Unit) {
         stop.set(false)
+        bindTold.clear()
         val rows = ArrayList<Row>()
         var mobileBytes = 0L
         var failed: String? = null // why the last measure got nothing
@@ -177,6 +182,8 @@ object SpeedTest {
                             // an upload still running at the end is cut off on purpose (below): not an error
                             if (SystemClock.elapsedRealtime() < deadline && !stop.get())
                                 lastError = e.javaClass.simpleName + (e.message?.let { ": " + it.take(60) } ?: "")
+                            if (e.message?.startsWith("Binding socket") == true && bindTold.add(net))
+                                runCatching { onBindFailed?.invoke(net, e.message!!.take(120)) }
                             SystemClock.sleep(300)
                         }
                     }
