@@ -32,6 +32,7 @@ class DualNetworks(context: Context, private val onChange: (() -> Unit)? = null)
     private val networks = ConcurrentHashMap<Kind, Network>()
     private val callbacks = ConcurrentHashMap<Kind, ConnectivityManager.NetworkCallback>()
     private val validated = ConcurrentHashMap<Kind, Boolean>() // Android checked that it reaches the internet
+    private val blocked = ConcurrentHashMap<Kind, Boolean>() // Android said it blocks this app on it (data saver, ...)
 
     fun start() {
         for (kind in Kind.values()) hold(kind, true)
@@ -92,6 +93,7 @@ class DualNetworks(context: Context, private val onChange: (() -> Unit)? = null)
 
                 override fun onBlockedStatusChanged(network: Network, blocked: Boolean) {
                     if (callbacks[kind] !== this) return
+                    this@DualNetworks.blocked[kind] = blocked
                     log("$kind ${if (blocked) "blocked by Android (data saver or background limits)" else "no longer blocked"}")
                 }
 
@@ -180,6 +182,19 @@ class DualNetworks(context: Context, private val onChange: (() -> Unit)? = null)
     }
 
     fun all(): List<Network> = networks.values.toList()
+
+    /**
+     * What Android says about a network now, for the log when a socket could not be bound to it (seen once in a speed
+     * test on a Galaxy A7 2018: "Binding socket to network failed: EPERM" for all of Wi-Fi's 20 s, the next test a
+     * moment later worked; the cause is not known yet).
+     */
+    fun stateOf(kind: Kind, network: Network): String = runCatching {
+        val caps = cm.getNetworkCapabilities(network)
+        "still the current one ${networks[kind] == network}, among Android's networks ${cm.allNetworks.contains(network)}, " +
+            "validated ${caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)}, " +
+            "blocked ${blocked[kind] ?: "not said"}, default network ${cm.activeNetwork == network}, VPN up ${vpnActive()}, " +
+            "data saver ${cm.restrictBackgroundStatus}"
+    }.getOrElse { "unknown (${it.javaClass.simpleName})" }
 
     fun vpnActive(): Boolean = cm.allNetworks.any {
         cm.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true

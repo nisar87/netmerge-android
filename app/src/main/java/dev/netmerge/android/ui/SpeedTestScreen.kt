@@ -49,6 +49,10 @@ suspend fun runSpeedTest(ctx: Context) = withContext(Dispatchers.IO) {
             dev.netmerge.android.EventLog.add(ctx, "speed test: no network to test")
             return@withContext
         }
+        SpeedTest.onBindFailed = { net, why ->
+            val kind = if (net == wifi) DualNetworks.Kind.WIFI else DualNetworks.Kind.MOBILE
+            dev.netmerge.android.EventLog.add(ctx, "speed test: $kind could not be used ($why); ${n.stateOf(kind, net)}")
+        }
         SpeedTest.run(wifi, {
             // mobile data switched off in the phone's settings (or no SIM): nothing to wait for
             val on = runCatching { LiveReader.mobileDataOn(ctx) }.getOrDefault(true)
@@ -67,6 +71,7 @@ suspend fun runSpeedTest(ctx: Context) = withContext(Dispatchers.IO) {
             SpeedTestRun.state.value = s
         }
     } finally {
+        SpeedTest.onBindFailed = null
         n.stop()
     }
     if (mobile == null && wifi != null && !SpeedTest.stopped()) {
